@@ -2,19 +2,23 @@
 
 ## Status
 - **Updated:** 2026-10-09
-- **Done:** Step 1, repo setup:
-  - `CLAUDE.md`
-  - this plan
-  - the auto-approve hook
-- **Next action:** M1.
-  1. Scaffold `worker/`: TypeScript, wrangler, and vitest with `@cloudflare/vitest-pool-workers`.
-  2. Implement the OCI request signer.
-  3. Unit-test the signer. Oracle's "Request Signatures" page shows signing strings but **only placeholder signatures**, so it is not a complete test vector. The tests therefore:
-     - match the page's GET signing string exactly;
-     - match reference `Authorization` headers that the official OCI Python SDK signer produces for the same key, date and request. RSASSA-PKCS1-v1_5 is deterministic, so exact byte equality is the test.
+- **Done:** Step 1 (repo setup) and M1 (Worker skeleton and OCI request signer). See Milestones.
+- **Next action:** M2 (onboarding), in this order:
+  1. Generate the API key pair and compute the OCI fingerprint.
+  2. Parse the config preview and cross-check its fingerprint.
+  3. Encrypt the stored key.
+  4. Build an OCI fetch client with error parsing.
+  5. Call `ListRegionSubscriptions` and `ListAvailabilityDomains`.
+  6. Add the onboarding API routes.
+- **Live tests:** these need environment variables in the cloud environment settings (values are never committed):
+  - `OCI_TEST_KEY_B64` (base64 of a PKCS#8 PEM)
+  - `OCI_TEST_USER`
+  - `OCI_TEST_TENANCY`
+  - `OCI_TEST_REGION`
+
+  They load at session start. The key is a dedicated test key on the maintainer's user. Live calls are **read-only** unless the maintainer says otherwise.
 - **Blockers:** none.
-- **Git:** `main` requires PRs (squash only). Flow: `claude/*` branch, then PR, then immediate squash-merge (see `CLAUDE.md` → Git).
-- **Note:** the auto-approve hook was added mid-session. It is expected to load at the next session start. *Whether it applies mid-session is unverified.*
+- **Git:** `main` requires PRs (squash only). See `CLAUDE.md` → Git.
 
 ## Goal
 A friend with no technical background, working from a phone, ends up with the reference configuration in their own OCI account:
@@ -43,7 +47,7 @@ What cannot be automated:
 | Micros | 2× `VM.Standard.E2.1.Micro`, 47 GB boot volume each |
 | Storage | 106 + 47 + 47 = 200 GB, the full Always Free allowance |
 | Image | Ubuntu 24.04 Minimal (aarch64 for A1, x86_64 for micros), chosen from the live image list |
-| Access | Public IPv4 + SSH (Termius). Tailscale is optional. |
+| Access | Public IPv4 + SSH (Termius). Tailscale is optional, including exit-node mode (use the VM as a VPN / egress-IP change). |
 | Keep-alive (micros) | stress-ng, 2 workers at 35% load, 2 h once daily |
 | Keep-alive (A1) | stress-ng, 2 workers at 25% load, 30 min every 6 h |
 
@@ -91,11 +95,19 @@ What cannot be automated:
 | Capacity retry | One Durable Object per deployment, driven by an alarm. Each round tries every AD for A1; micros use their single eligible AD. Adaptive pacing: start fast, back off on 429. Stop on LimitExceeded or NotAuthorized. |
 | Status / notify | MVP is a reopenable status page. Web Push comes later. iOS needs the site added to the Home Screen (16.4+). Android Chrome reportedly works in-browser *(unverified)*. |
 | VM components | Opt-in toggles through cloud-init. Keep-alive is recommended. Each component ships a control sheet (see `CLAUDE.md` → Product rules). |
+| Tailscale | The user supplies an auth key. Exit-node mode is the main reason to enable Tailscale (a requested feature) and works as follows:<br>- **On the VM:** IP forwarding via sysctl (`net.ipv4.ip_forward`, `net.ipv6.conf.all.forwarding`), plus `tailscale set --advertise-exit-node`.<br>- **Approval:** the user approves the exit node in the Tailscale admin console, unless `autoApprovers` covers it.<br>- **Clients:** each client device selects the exit node.<br>- **Control sheet:** adds exit-node on/off. |
+| Session identity | Each onboarding gets a random 128-bit capability ID. It names the Durable Object and appears in the status-page URL, which the user bookmarks. There are no accounts or logins at friend scale. |
 
 ## Milestones
 - [x] **Step 1:** Repo setup: `CLAUDE.md`, this plan, auto-approve hook.
-- [ ] **M1:** Worker skeleton and OCI request signer.
-  - *Done when* the signing-string test matches Oracle's GET example and the signatures match the OCI Python SDK reference headers byte-for-byte.
+- [x] **M1:** Worker skeleton and OCI request signer (`worker/src/oci/signer.ts`, `worker/src/oci/url.ts`).
+  - 21 tests pass in workerd:
+    - Oracle's GET signing string matches exactly.
+    - 8 SDK reference cases match byte-for-byte: GET, HEAD, DELETE, POST, PUT, PATCH, an empty body, and a UTF-8 body.
+    - Every printable ASCII character survives URL encoding round-trips.
+  - `tsc` is clean.
+  - The local workerd runtime sends the `Date` header unchanged, so there is no need for `x-date`. *Production edge not yet confirmed; that happens at M2.*
+  - Fixtures regenerate with `worker/scripts/gen-signer-fixtures.py` (command in its header).
 - [ ] **M2:** Onboarding.
   - The app generates the API key pair and shows the public PEM.
   - The user pastes it in the Console and pastes the config preview back.
@@ -122,7 +134,14 @@ What cannot be automated:
 - **M6:** A1 keep-alive margin is +5 points. Consider a 30% default load.
 - **M6:** Decide tunnel ownership: the user's own Cloudflare account, or the maintainer's account and domain.
 - **M6:** Decide the implementation for pausable components (systemd timer vs cron). Control-sheet semantics drive the choice.
+- **M6 (Tailscale exit node):** OCI Ubuntu images also end the iptables `FORWARD` chain with a `REJECT` rule. Exit-node forwarding works only if Tailscale's own netfilter rules precede it. *Unverified; test on a real VM.* Also check Always Free outbound data-transfer allowance, which exit-node traffic consumes. *Unverified.*
+- **Testing:** the reference tenancy is full (2/2 VCNs, 200/200 GB), so live tests there are read-only or dry-run. Testing the create path (M4/M5) needs an empty tenancy.
 - **M6 (Tailscale toggle only):** Direct WireGuard connections may need inbound 41641/udp in both the security list and iptables, inserted above the REJECT rule. Without it, traffic is expected to fall back to relays. *Unverified. Check Tailscale's docs at M6.* Exit-node setup is out of scope.
+
+## Tooling notes
+- `@cloudflare/vitest-pool-workers` is deprecated and renamed to `@cloudflare/vitest-plugin`; the plugin is used via `cloudflareTest()` in `vitest.config.ts`.
+- `worker/.npmrc` sets `legacy-peer-deps=true`, because npm 10.9 crashes with `Cannot read properties of null (reading 'edgesOut')` while resolving this peer set. All peers are listed explicitly in `package.json`.
+- Dependency versions are pinned to releases at least two weeks old at install time.
 
 ## Sources
 All sources are linked inline in **Platform facts** above.
