@@ -24,7 +24,7 @@ production. The configuration is defined in `docs/PLAN.md`.
 | `docs/PLAN.md` | Living plan: status, decisions, milestones, open items, sources |
 | `.claude/settings.json`, `.claude/hooks/auto-approve.sh` | PreToolUse hook that auto-approves all tool calls so there are no in-chat permission prompts. It blocks force-pushes, deleting or rewriting `main`, and `rm -rf` of `/` or `~`. |
 | `worker/` | Cloudflare Worker (TypeScript). `src/oci/` holds request signing and URL building. Tests live in `test/` and run in workerd via `@cloudflare/vitest-plugin`. Setup: `cd worker && npm ci`. Checks: `npm test && npm run typecheck`. |
-| `web/` *(planned)* | Static mobile frontend |
+| `worker/public/` | Static mobile frontend, served via Workers static assets |
 
 ## Working rules
 - **Earned-space check.** Before spending significant time on one thing,

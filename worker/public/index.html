@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>EasyCloud</title>
+<style>
+  :root { --bg:#f7f7f5; --card:#fff; --ink:#1c1c1a; --muted:#6b6b66; --line:#e3e3de; --accent:#1f6feb; --ok:#1a7f37; --bad:#c62828; color-scheme: light; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#141413; --card:#1e1e1c; --ink:#ececea; --muted:#9a9a94; --line:#33332f; --accent:#4c8dff; --ok:#3fb950; --bad:#ff6b6b; color-scheme: dark; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:38rem; margin:0 auto; padding:max(1.25rem, env(safe-area-inset-top)) 1rem max(2rem, env(safe-area-inset-bottom)); }
+  h1 { font-size:1.6rem; margin:.25rem 0 .25rem; }
+  .lede { color:var(--muted); margin:0 0 1.25rem; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:1rem 1rem 1.1rem; margin-bottom:1rem; }
+  h2 { font-size:1.05rem; margin:0 0 .6rem; }
+  ol { padding-left:1.25rem; margin:.5rem 0; } li { margin:.25rem 0; }
+  pre, textarea { width:100%; font:12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:10px; padding:.7rem; }
+  pre { white-space:pre-wrap; word-break:break-all; margin:.5rem 0; }
+  textarea { min-height:9rem; resize:vertical; }
+  button { appearance:none; border:0; border-radius:10px; background:var(--accent); color:#fff; font:inherit; font-weight:600; padding:.7rem 1.1rem; min-height:44px; width:100%; margin-top:.5rem; }
+  button.secondary { background:transparent; color:var(--accent); border:1px solid var(--line); }
+  button:disabled { opacity:.55; }
+  .note { color:var(--muted); font-size:.9rem; }
+  .ok { color:var(--ok); font-weight:600; } .bad { color:var(--bad); }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>EasyCloud</h1>
+  <p class="lede">Connect your Oracle Cloud account so EasyCloud can set up your free server.</p>
+
+  <section id="step-start">
+    <h2>1. Create your access key</h2>
+    <p>EasyCloud makes a key that lets it work in your Oracle account. You'll add it to Oracle in the next step.</p>
+    <button id="start">Start</button>
+    <div id="start-error" class="bad" hidden></div>
+  </section>
+
+  <section id="step-key" hidden>
+    <h2>1. Add this key to Oracle</h2>
+    <pre id="public-key"></pre>
+    <button id="copy-key">Copy key</button>
+    <ol>
+      <li>Open <b>cloud.oracle.com</b> and sign in.</li>
+      <li>Tap the profile icon (top right) → <b>User settings</b>.</li>
+      <li>Open <b>API keys</b> (sometimes under <b>Tokens and keys</b>) → <b>Add API key</b>.</li>
+      <li>Choose <b>Paste a public key</b>, paste, then tap <b>Add</b>.</li>
+      <li>Oracle shows a <b>Configuration file preview</b>. Tap <b>Copy</b> on it and come back here.</li>
+    </ol>
+    <p class="note">Bookmark this page — the link brings you back to this setup.</p>
+  </section>
+
+  <section id="step-connect" hidden>
+    <h2>2. Paste the configuration preview</h2>
+    <textarea id="preview" placeholder="[DEFAULT]&#10;user=ocid1.user...&#10;fingerprint=...&#10;tenancy=ocid1.tenancy...&#10;region=..." autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+    <button id="connect">Connect</button>
+    <div id="connect-error" class="bad" hidden></div>
+  </section>
+
+  <section id="step-done" hidden>
+    <h2>Connected</h2>
+    <p class="ok">Your Oracle account is connected.</p>
+    <p>Home region: <b id="home-region"></b><br>Availability domains: <b id="ad-count"></b></p>
+    <p class="note">Next, EasyCloud will set up your servers. Bookmark this page to check on it.</p>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const show = (id, on = true) => { $(id).hidden = !on; };
+  const accountId = () => new URLSearchParams(location.hash.slice(1)).get("a");
+
+  function render(account) {
+    show("step-start", false);
+    if (account.state === "connected") {
+      show("step-key", false); show("step-connect", false); show("step-done");
+      $("home-region").textContent = account.homeRegion;
+      $("ad-count").textContent = String(account.availabilityDomains.length);
+      return;
+    }
+    $("public-key").textContent = account.publicPem.trim();
+    show("step-key"); show("step-connect");
+  }
+
+  async function api(path, init) {
+    const res = await fetch(path, { headers: { "content-type": "application/json" }, ...init });
+    const body = await res.json().catch(() => ({}));
+    return { res, body };
+  }
+
+  $("start").addEventListener("click", async () => {
+    $("start").disabled = true; $("start").textContent = "Creating key…";
+    try {
+      const { res, body } = await api("/api/accounts", { method: "POST" });
+      if (!res.ok) throw new Error("Could not create a key. Try again.");
+      history.replaceState(null, "", `#a=${body.id}`);
+      render(body);
+    } catch (err) {
+      $("start").disabled = false; $("start").textContent = "Start";
+      $("start-error").textContent = err.message; show("start-error");
+    }
+  });
+
+  $("copy-key").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText($("public-key").textContent + "\n"); $("copy-key").textContent = "Copied"; }
+    catch { $("copy-key").textContent = "Select the key above and copy it"; }
+    setTimeout(() => { $("copy-key").textContent = "Copy key"; }, 2500);
+  });
+
+  $("connect").addEventListener("click", async () => {
+    const err = $("connect-error"); err.hidden = true;
+    $("connect").disabled = true; $("connect").textContent = "Checking with Oracle…";
+    try {
+      const { body } = await api(`/api/accounts/${accountId()}/connect`, { method: "POST", body: JSON.stringify({ preview: $("preview").value }) });
+      if (body.ok) { render(body.account); return; }
+      const e = body.error || {};
+      err.textContent = e.message || "Something went wrong. Try again.";
+      if (e.details && e.details.length) err.textContent += " (" + e.details.join("; ") + ")";
+      err.hidden = false;
+    } finally {
+      $("connect").disabled = false; $("connect").textContent = "Connect";
+    }
+  });
+
+  (async () => {
+    const id = accountId();
+    if (!id) return;
+    const { res, body } = await api(`/api/accounts/${id}`);
+    if (res.ok) render(body);
+  })();
+})();
+</script>
+</body>
+</html>

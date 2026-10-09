@@ -3,5 +3,8 @@
   "name": "easycloud",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-20",
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  "assets": { "directory": "./public" },
+  "durable_objects": { "bindings": [{ "name": "ACCOUNTS", "class_name": "Account" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Account"] }]
 }
