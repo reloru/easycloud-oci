@@ -80,8 +80,8 @@ describe("connectAccount", () => {
       },
     });
     expect(seen.map((r) => r.url)).toEqual([
-      `https://identity.us-phoenix-1.oraclecloud.com/20160918/tenancies/${TENANCY}/regionSubscriptions`,
-      `https://identity.us-ashburn-1.oraclecloud.com/20160918/availabilityDomains?compartmentId=${TENANCY}`,
+      `https://identity.us-phoenix-1.oci.oraclecloud.com/20160918/tenancies/${TENANCY}/regionSubscriptions`,
+      `https://identity.us-ashburn-1.oci.oraclecloud.com/20160918/availabilityDomains?compartmentId=${TENANCY}`,
     ]);
     for (const req of seen) {
       expect(req.headers.get("authorization")).toContain(`keyId="${TENANCY}/${USER}/${account.fingerprint}"`);
