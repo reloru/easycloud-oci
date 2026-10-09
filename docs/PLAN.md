@@ -9,7 +9,9 @@
 - **Next action:** M1.
   1. Scaffold `worker/`: TypeScript, wrangler, and vitest with `@cloudflare/vitest-pool-workers`.
   2. Implement the OCI request signer.
-  3. Unit-test the signer against Oracle's published signing test vectors (sample keys and expected signatures in the "Request Signatures" doc).
+  3. Unit-test the signer. Oracle's "Request Signatures" page shows signing strings but **only placeholder signatures**, so it is not a complete test vector. The tests therefore:
+     - match the page's GET signing string exactly;
+     - match reference `Authorization` headers that the official OCI Python SDK signer produces for the same key, date and request. RSASSA-PKCS1-v1_5 is deterministic, so exact byte equality is the test.
 - **Blockers:** none.
 - **Git:** `main` requires PRs (squash only). Flow: `claude/*` branch, then PR, then immediate squash-merge (see `CLAUDE.md` → Git).
 - **Note:** the auto-approve hook was added mid-session. It is expected to load at the next session start. *Whether it applies mid-session is unverified.*
@@ -21,7 +23,7 @@ A friend with no technical background, working from a phone, ends up with the re
 
 The only manual steps are:
 1. Oracle signup.
-2. One console visit to create an API key.
+2. One console visit to paste the app-generated public API key.
 3. Generating an SSH key in Termius.
 
 The first target is friend scale. A public release is possible later.
@@ -31,7 +33,7 @@ Yes. Every provisioning step is a documented OCI API call, and the configuration
 
 What cannot be automated:
 - **Oracle signup.** This includes MFA enrollment. The home region is chosen at signup and is **permanent**.
-- **Creating the API key**, done once in the console.
+- **Adding the API key**: pasting the app-generated public key into the Console, done once.
 
 ## Reference configuration (app defaults)
 | Item | Default |
@@ -64,7 +66,9 @@ What cannot be automated:
 | Free-tier tenancies: max 2 VCNs. Always Free compute only in the home region. | same |
 | Idle reclamation happens only if CPU P95 < 20% **and** network < 20% **and** memory < 20% (A1 only) over 7 days. | same |
 | Home region cannot be changed after signup | [Managing Regions](https://docs.oracle.com/iaas/Content/Identity/regions/managingregions.htm) |
-| Request signing: RSA-SHA256 (draft-cavage). POST signs `x-content-sha256`, `content-type`, `content-length`. Clock skew limit 5 min. | [Request Signatures](https://docs.oracle.com/en-us/iaas/Content/API/Concepts/signingrequests.htm) |
+| Request signing: RSA-SHA256 (draft-cavage). `keyId` = `tenancyOCID/userOCID/fingerprint`. GET/DELETE sign `(request-target) host date`. POST/PUT also sign `x-content-sha256`, `content-type`, `content-length`. Clock skew limit 5 min. The page's example `Authorization` headers use a placeholder signature. | [Request Signatures](https://docs.oracle.com/en-us/iaas/Content/API/Concepts/signingrequests.htm) |
+| API key: RSA, PEM, minimum 2048 bits. The Console's "Add API key" dialog has a paste-public-key option. Its config preview gives `user`, `fingerprint`, `tenancy` and `region`, where `region` is the **currently selected Console region, not necessarily the home region**. | [Required Keys and OCIDs](https://docs.oracle.com/en-us/iaas/Content/API/Concepts/apisigningkey.htm) |
+| Home region is discoverable via `ListRegionSubscriptions`: pick the entry with `isHomeRegion == true`. | [CLI region-subscription list](https://docs.oracle.com/en-us/iaas/tools/oci-cli/latest/oci_cli_docs/cmdref/iam/region-subscription/list.html), [RegionSubscription model](https://docs.oracle.com/en-us/iaas/tools/python/latest/api/identity/models/oci.identity.models.RegionSubscription.html) |
 | `metadata` + `extendedMetadata` ≤ 32,000 bytes. `user_data` and `ssh_authorized_keys` cannot be changed after launch. | [CLI launch reference](https://docs.cloud.oracle.com/iaas/tools/oci-cli/latest/oci_cli_docs/cmdref/compute/instance/launch.html) |
 | Ubuntu images: iptables REJECTs all inbound traffic except port 22. Don't use UFW. | [Oracle dev blog](https://blogs.oracle.com/developers/enabling-network-traffic-to-ubuntu-images-in-oracle-cloud-infrastructure), [Compute best practices](https://docs.oracle.com/en-us/iaas/Content/Compute/References/bestpracticescompute.htm) |
 | Console MFA is on by default for new tenancies. It applies to Console sign-in only; API-key calls are unaffected. | [Security Policy for OCI Console](https://docs.oracle.com/en-us/iaas/Content/Security/Reference/iam_security_topic-iam_mfa_identity_domains_signon_policy.htm) |
@@ -77,22 +81,26 @@ What cannot be automated:
 |---|---|
 | Backend | TypeScript Cloudflare Worker (Workers Paid plan). Static mobile frontend on the maintainer's domain. |
 | OCI calls | The Worker signs each request and calls OCI itself. The browser never calls OCI directly. |
-| Access (MVP) | The user creates an API key in the console, then pastes the private key and the config preview (tenancy OCID, user OCID, fingerprint, region) into the app. The key is stored encrypted. |
-| SSH | Key generated in Termius (ED25519). The user pastes only the public key. |
+| Access (MVP) | The app generates the API key pair (RSA-2048) and keeps the private key, stored encrypted. The app needs it to act. The user then: (1) copies the public PEM from the app, (2) pastes it in Console → API keys → paste public key, (3) pastes the resulting config preview back. The user never handles a private key file on the phone. |
+| Home region | Never trust the preview's `region`. Call `ListRegionSubscriptions` and use the `isHomeRegion` entry for all Always Free work. |
+| SSH | The user generates an ED25519 key in their SSH app (Termius on iOS and Android, or any client that can make one) and pastes only the public key. The app never generates, sees, or delivers a private SSH key, so browser and WebCrypto Ed25519 issues do not apply. |
 | Discovery first | Before creating anything, read A1 and storage limits, current storage use, existing VCNs, and images per shape. |
 | Layout order | Reserve 47 GB per planned micro. Create the A1 first because it is the scarce shape, then the micros. Reuse an existing VCN when present. |
 | Network | Create only what is needed: VCN, internet gateway, route table, public subnet, security list (22 inbound). Not the wizard's NAT, service gateway, or private subnet. |
 | Image | Ubuntu 24.04 Minimal by default. 26.04 is opt-in only; it needs the sudo-rs vs oracle-cloud-agent sudoers fix. |
 | Capacity retry | One Durable Object per deployment, driven by an alarm. Each round tries every AD for A1; micros use their single eligible AD. Adaptive pacing: start fast, back off on 429. Stop on LimitExceeded or NotAuthorized. |
-| Status / notify | MVP is a reopenable status page. Web Push comes later and requires a PWA. |
+| Status / notify | MVP is a reopenable status page. Web Push comes later. iOS needs the site added to the Home Screen (16.4+). Android Chrome reportedly works in-browser *(unverified)*. |
 | VM components | Opt-in toggles through cloud-init. Keep-alive is recommended. Each component ships a control sheet (see `CLAUDE.md` → Product rules). |
 
 ## Milestones
 - [x] **Step 1:** Repo setup: `CLAUDE.md`, this plan, auto-approve hook.
 - [ ] **M1:** Worker skeleton and OCI request signer.
-  - *Done when* the unit tests pass against Oracle's signing test vectors.
-- [ ] **M2:** Onboarding. Paste the config preview and API key, store the key encrypted, validate with a read-only call (for example, list availability domains).
-  - *Done when* a read-only call succeeds against a real tenancy.
+  - *Done when* the signing-string test matches Oracle's GET example and the signatures match the OCI Python SDK reference headers byte-for-byte.
+- [ ] **M2:** Onboarding.
+  - The app generates the API key pair and shows the public PEM.
+  - The user pastes it in the Console and pastes the config preview back.
+  - The app stores the key encrypted, resolves the home region via `ListRegionSubscriptions`, then validates with a read-only call.
+  - *Done when* the flow succeeds against a real tenancy. The maintainer can test by adding a second API key to his own user, so no private key ever has to be shared.
 - [ ] **M3:** Discovery: limits, storage use, VCNs, images per shape.
   - *Done when* a dry-run against the reference tenancy prints a correct layout plan.
 - [ ] **M4:** Network: create or reuse.
@@ -114,6 +122,7 @@ What cannot be automated:
 - **M6:** A1 keep-alive margin is +5 points. Consider a 30% default load.
 - **M6:** Decide tunnel ownership: the user's own Cloudflare account, or the maintainer's account and domain.
 - **M6:** Decide the implementation for pausable components (systemd timer vs cron). Control-sheet semantics drive the choice.
+- **M6 (Tailscale toggle only):** Direct WireGuard connections may need inbound 41641/udp in both the security list and iptables, inserted above the REJECT rule. Without it, traffic is expected to fall back to relays. *Unverified. Check Tailscale's docs at M6.* Exit-node setup is out of scope.
 
 ## Sources
 All sources are linked inline in **Platform facts** above.
