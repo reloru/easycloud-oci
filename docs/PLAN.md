@@ -3,7 +3,7 @@
 ## Status
 - **Updated:** 2026-10-09
 - **Done:** Step 1 (repo setup) and M1 (Worker skeleton and OCI request signer). See Milestones.
-- **M2 and M3 status:** implemented and tested offline. 61 tests pass; `tsc` is clean; the page passes a headless smoke test at phone size. Both still need a live run.
+- **M2–M5 status:** code done and tested offline. 76 tests pass; `tsc` is clean; the page passes headless smoke tests at phone size. Live runs are still pending: M2/M3 need the env vars or a deploy, and M4/M5 need an **empty** tenancy because they create resources.
 - **Next action:**
   1. When the `OCI_TEST_*` env vars exist, `npm test` also runs `test/live.test.ts`. It has a GET-only guard and covers:
      - the home region and ADs;
@@ -11,7 +11,7 @@
 
      Check the logged limit values. They show how the Limits API reports the Always Free A1, micro and storage limits (AD-scoped or regional); adjust `planLayout`'s `Allowance` source if needed. For the reference tenancy, the plan should report "nothing to create".
   2. Deploy (maintainer action; see Open items). Run the onboarding page against the reference tenancy with an app-generated second API key. That closes M2.
-  3. M5: launch plus the Durable Object retry loop. M4 code is done; live create tests need an empty tenancy.
+  3. M6: cloud-init components with control sheets, keep-alive first.
 - **Live tests:** these need environment variables in the cloud environment settings (values are never committed):
   - `OCI_TEST_KEY_B64` (base64 of a PKCS#8 PEM)
   - `OCI_TEST_USER`
@@ -154,14 +154,36 @@ What cannot be automated:
     - A regional public subnet, 10.0.0.0/24.
   - It polls each resource until AVAILABLE and sends a per-run `opc-retry-token` on creates.
   - Tests use a stateful fake OCI. They cover a full build, a second run with zero writes, repair of a half-built network, retry tokens, and the poll timeout.
-- [ ] **M5:** Launch, the Durable Object retry loop, and the status page.
+- [ ] **M5:** Launch, the Durable Object retry loop, and the status page. *Code done; live run pending (needs an empty tenancy).*
   - *Done when* capacity, limit, and rate errors are each handled distinctly and the loop survives Worker restarts.
+  - Built so far:
+    - `src/deploy.ts`: a state machine driven by the Durable Object alarm (`network` → `servers` → `done`/`failed`/`cancelled`).
+    - Per alarm, each pending server gets one action:
+      - **Launch:** rotates through its candidate ADs and sends a per-attempt `opc-retry-token`.
+      - **Adopt:** if an instance named `easycloud-*` already exists (a lost response), it is adopted instead of relaunched.
+      - **Poll:** waits for RUNNING, then reads the public IP from VNIC attachments.
+      - **Relaunch:** if Oracle terminates an accepted launch, the server is launched again.
+    - Error handling:
+      - "Out of host capacity" (500 `InternalError`): retry every 60 s on the next AD.
+      - 429: exponential backoff from 60 s up to 15 min.
+      - 5xx and 409 `IncorrectState`: retry with backoff.
+      - `LimitExceeded`/`QuotaExceeded`/401/404: that server fails; the others continue.
+      - Unexpected exceptions in the alarm also back off, so the loop never dies.
+    - Routes:
+      - `POST /api/accounts/:id/deploy` with body `{sshPublicKey}`
+      - `GET /api/accounts/:id/deployment`
+      - `POST /api/accounts/:id/cancel`
+    - The page has an SSH key form and a progress view that polls every 15 s.
 - [ ] **M6:** cloud-init components with control sheets, keep-alive first.
   - *Done when* every control-sheet command has been verified on a real VM, including uninstall.
 - [ ] **M7:** Handoff screen: IP address, Termius connection fields, control sheets.
 - [ ] **M8:** Hardening. Replace the account-wide key with a scoped bot user, delete the admin key, add revoke.
 
 ## Open items
+- **M5 options (not built):**
+  - `CreateComputeCapacityReport` checks capacity before launching; Oracle's Known Issues page points to it.
+  - An opt-in A1 fallback to 1 OCPU / 6 GB when 2/12 has no capacity.
+  - Push or email notification when servers are ready.
 - **Deploy (maintainer action):**
   1. Connect this repo to a Worker with Cloudflare Workers Builds. Use root directory `worker`; deploy command `npx wrangler deploy`.
   2. Set the secret `KEY_ENCRYPTION_KEY` to the output of `openssl rand -base64 32`. Changing it later makes stored keys undecryptable; the envelope has a version byte for future rotation.

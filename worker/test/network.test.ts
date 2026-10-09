@@ -3,85 +3,9 @@ import { OciClient } from "../src/oci/client";
 import { ensureNetwork, NAMES } from "../src/oci/network";
 import { importPrivateKeyPem } from "../src/oci/signer";
 import ref from "./fixtures/signer-reference.json";
+import { FakeOci, fakeClient as client, type Obj } from "./helpers/fake-oci";
 
 const C = "ocid1.compartment.oc1..root";
-type Obj = Record<string, any>;
-
-/** Stateful in-memory stand-in for the OCI networking API (enough for ensureNetwork). */
-class FakeOci {
-  vcns = new Map<string, Obj>();
-  igws = new Map<string, Obj>();
-  routeTables = new Map<string, Obj>();
-  securityLists = new Map<string, Obj>();
-  subnets = new Map<string, Obj>();
-  tokens = new Map<string, Obj>();
-  calls: string[] = [];
-  private n = 0;
-  constructor(private readonly defaultSsh = false) {}
-
-  private id(kind: string) {
-    return `ocid1.${kind}.oc1..${++this.n}`;
-  }
-
-  private store(kind: string): Map<string, Obj> {
-    return { vcns: this.vcns, internetGateways: this.igws, routeTables: this.routeTables, securityLists: this.securityLists, subnets: this.subnets }[kind]!;
-  }
-
-  handle = async (req: Request): Promise<Response> => {
-    const url = new URL(req.url);
-    const [, , kind, id] = url.pathname.split("/"); // /20160918/<kind>/<id?>
-    this.calls.push(`${req.method} ${kind}${id ? "/:id" : ""}`);
-    const store = this.store(kind!);
-    const q = url.searchParams;
-    if (req.method === "GET" && !id) {
-      return Response.json(
-        [...store.values()].filter(
-          (r) => r.compartmentId === q.get("compartmentId") && (!q.get("vcnId") || r.vcnId === q.get("vcnId")) && (!q.get("displayName") || r.displayName === q.get("displayName")),
-        ),
-      );
-    }
-    if (req.method === "GET") {
-      const r = store.get(id!);
-      if (!r) return Response.json({ code: "NotAuthorizedOrNotFound", message: id }, { status: 404 });
-      if (r.lifecycleState === "PROVISIONING") r.lifecycleState = "AVAILABLE";
-      return Response.json(r);
-    }
-    if (req.method === "PUT") {
-      const r = store.get(id!)!;
-      Object.assign(r, await req.json());
-      return Response.json(r);
-    }
-    if (req.method === "POST") {
-      const token = req.headers.get("opc-retry-token");
-      if (token && this.tokens.has(token)) return Response.json(this.tokens.get(token));
-      const body = (await req.json()) as Obj;
-      const r: Obj = { ...body, id: this.id(kind!), lifecycleState: "PROVISIONING" };
-      if (kind === "vcns") {
-        const rt = { id: this.id("routetable"), compartmentId: body.compartmentId, vcnId: r.id, routeRules: [] };
-        const sl = {
-          id: this.id("securitylist"),
-          compartmentId: body.compartmentId,
-          vcnId: r.id,
-          ingressSecurityRules: this.defaultSsh
-            ? [{ protocol: "6", source: "0.0.0.0/0", tcpOptions: { destinationPortRange: { min: 22, max: 22 } } }]
-            : [{ protocol: "1", source: "0.0.0.0/0" }],
-        };
-        this.routeTables.set(rt.id, rt);
-        this.securityLists.set(sl.id, sl);
-        Object.assign(r, { defaultRouteTableId: rt.id, defaultSecurityListId: sl.id });
-      }
-      store.set(r.id, r);
-      if (token) this.tokens.set(token, r);
-      return Response.json(r);
-    }
-    return new Response("unsupported", { status: 500 });
-  };
-}
-
-async function client(fake: FakeOci) {
-  const privateKey = await importPrivateKeyPem(ref.privateKeyPem);
-  return new OciClient({ tenancyOcid: "t", userOcid: "u", fingerprint: ref.fingerprint, privateKey }, fake.handle);
-}
 
 const opts = { region: "us-ashburn-1", compartmentId: C, retrySeed: "easycloud-acct", sleep: async () => {} };
 const mutations = (calls: string[]) => calls.filter((c) => !c.startsWith("GET"));

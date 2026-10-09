@@ -24,12 +24,37 @@ export default {
       return json({ id, ...account }, 201);
     }
 
-    const planMatch = /^\/api\/accounts\/([^/]+)\/plan$/.exec(pathname);
-    if (planMatch && request.method === "GET") {
-      const id = planMatch[1]!;
+    const action = /^\/api\/accounts\/([^/]+)\/(plan|deploy|deployment|cancel)$/.exec(pathname);
+    if (action) {
+      const [, id, verb] = action as unknown as [string, string, string];
       if (!ACCOUNT_ID.test(id)) return json({ error: "not-found" }, 404);
-      const result = await env.ACCOUNTS.getByName(id).plan(id);
-      return json(result, result.ok ? 200 : result.error.kind === "not-connected" ? 409 : 502);
+      const stub = env.ACCOUNTS.getByName(id);
+      if (verb === "plan" && request.method === "GET") {
+        const result = await stub.plan(id);
+        return json(result, result.ok ? 200 : result.error.kind === "not-connected" ? 409 : 502);
+      }
+      if (verb === "deployment" && request.method === "GET") {
+        const deployment = await stub.deployment();
+        return deployment ? json(deployment) : json({ error: "not-found" }, 404);
+      }
+      if (verb === "cancel" && request.method === "POST") {
+        const deployment = await stub.cancel();
+        return deployment ? json(deployment) : json({ error: "not-found" }, 404);
+      }
+      if (verb === "deploy" && request.method === "POST") {
+        const text = await request.text();
+        if (new TextEncoder().encode(text).byteLength > MAX_PREVIEW_BYTES) return json({ error: "too-large" }, 413);
+        let key: unknown;
+        try {
+          key = (JSON.parse(text) as { sshPublicKey?: unknown }).sshPublicKey;
+        } catch {
+          return json({ error: "invalid-json" }, 400);
+        }
+        if (typeof key !== "string") return json({ error: "missing-ssh-key" }, 400);
+        const result = await stub.deploy(id, key);
+        return json(result, result.ok ? 202 : result.error.kind === "invalid-ssh-key" ? 422 : 409);
+      }
+      return json({ error: "method-not-allowed" }, 405);
     }
 
     const match = /^\/api\/accounts\/([^/]+)(\/connect)?$/.exec(pathname);
