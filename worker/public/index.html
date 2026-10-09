@@ -23,6 +23,8 @@
   button:disabled { opacity:.55; }
   .note { color:var(--muted); font-size:.9rem; }
   .ok { color:var(--ok); font-weight:600; } .bad { color:var(--bad); }
+  ul.plain { list-style:none; padding:0; margin:.25rem 0 .75rem; } ul.plain li { padding:.35rem 0; border-bottom:1px solid var(--line); }
+  h3 { font-size:.95rem; margin:.75rem 0 .25rem; }
   [hidden] { display:none !important; }
 </style>
 </head>
@@ -63,7 +65,14 @@
     <h2>Connected</h2>
     <p class="ok">Your Oracle account is connected.</p>
     <p>Home region: <b id="home-region"></b><br>Availability domains: <b id="ad-count"></b></p>
-    <p class="note">Next, EasyCloud will set up your servers. Bookmark this page to check on it.</p>
+    <p class="note">Bookmark this page to come back to it.</p>
+    <button id="check" class="secondary">Check what EasyCloud will set up</button>
+    <div id="plan-error" class="bad" hidden></div>
+  </section>
+
+  <section id="step-plan" hidden>
+    <h2>Your free servers</h2>
+    <div id="plan"></div>
   </section>
 </main>
 <script>
@@ -121,6 +130,39 @@
       err.hidden = false;
     } finally {
       $("connect").disabled = false; $("connect").textContent = "Connect";
+    }
+  });
+
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const describe = (c) => c.role === "a1"
+    ? `Ampere server — ${c.ocpus} cores, ${c.memoryInGBs} GB memory, ${c.bootVolumeGB} GB disk`
+    : `Small AMD server — ${c.bootVolumeGB} GB disk`;
+
+  function renderPlan({ plan }) {
+    const existing = [...plan.existing.a1.map((i) => `Ampere server “${i.displayName}” (${i.ocpus} cores, ${i.memoryInGBs} GB) — ${i.lifecycleState.toLowerCase()}`),
+                      ...plan.existing.micros.map((i) => `Small AMD server “${i.displayName}” — ${i.lifecycleState.toLowerCase()}`)];
+    const network = { none: "", reuse: `Uses your existing network “${plan.network.displayName}”.`, create: "Creates a new network with internet access.", blocked: "" }[plan.network.action];
+    let html = `<p>Storage: <b>${plan.storage.usedGB} of ${plan.storage.allowanceGB} GB</b> used.</p>`;
+    if (existing.length) html += `<h3>Already in your account</h3><ul class="plain">${existing.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>`;
+    html += `<h3>EasyCloud will create</h3>`;
+    html += plan.create.length ? `<ul class="plain">${plan.create.map((c) => `<li>${esc(describe(c))}</li>`).join("")}</ul>` : `<p class="note">Nothing — the free servers already exist.</p>`;
+    if (network) html += `<p class="note">${esc(network)}</p>`;
+    for (const b of plan.blockers) html += `<p class="bad">${esc(b)}</p>`;
+    for (const n of plan.notes) if (!n.startsWith("Nothing to create")) html += `<p class="note">${esc(n)}</p>`;
+    $("plan").innerHTML = html;
+    show("step-plan");
+  }
+
+  $("check").addEventListener("click", async () => {
+    const err = $("plan-error"); err.hidden = true;
+    $("check").disabled = true; $("check").textContent = "Looking at your account…";
+    try {
+      const { body } = await api(`/api/accounts/${accountId()}/plan`);
+      if (body.ok) { renderPlan(body); return; }
+      err.textContent = (body.error && body.error.message) || "Couldn't read your account. Try again.";
+      err.hidden = false;
+    } finally {
+      $("check").disabled = false; $("check").textContent = "Check what EasyCloud will set up";
     }
   });
 

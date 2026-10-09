@@ -44,6 +44,44 @@ export type ConnectError =
   | { kind: "not-authorized"; message: string; opcRequestId: string | null }
   | { kind: "oci-error"; message: string; status: number; code: string; opcRequestId: string | null };
 
+/** Plain-language mapping for OCI failures shared by onboarding and planning. */
+export function describeOciError(err: OciError): ConnectError {
+  if (err.status === 401) {
+    return {
+      kind: "not-authenticated",
+      message: "Oracle didn't accept the key. If you just added it, wait a minute and try again; if you removed it, add the key from step 1 again.",
+      opcRequestId: err.opcRequestId,
+    };
+  }
+  if (err.status === 404 || err.status === 403) {
+    return {
+      kind: "not-authorized",
+      message: "The key works, but this Oracle user isn't allowed to read the account. Add the key to the account's administrator user.",
+      opcRequestId: err.opcRequestId,
+    };
+  }
+  return { kind: "oci-error", message: err.message, status: err.status, code: err.code, opcRequestId: err.opcRequestId };
+}
+
+export async function clientFor(
+  deps: OnboardingDeps,
+  record: AccountRecord,
+  ids: { tenancy: string; user: string },
+): Promise<OciClient> {
+  return new OciClient(
+    {
+      tenancyOcid: ids.tenancy,
+      userOcid: ids.user,
+      fingerprint: record.fingerprint,
+      privateKey: await importSigningKey(await open(deps.dataKey, record.sealedKey, deps.accountId)),
+    },
+    deps.fetchImpl,
+    deps.now,
+  );
+}
+
+export const RECORD_KEY = RECORD;
+
 export type ConnectResult =
   | { ok: true; account: PublicAccount }
   | { ok: false; error: ConnectError };
@@ -98,16 +136,7 @@ export async function connectAccount(deps: OnboardingDeps, previewText: string):
     };
   }
 
-  const client = new OciClient(
-    {
-      tenancyOcid: preview.tenancy,
-      userOcid: preview.user,
-      fingerprint: record.fingerprint,
-      privateKey: await importSigningKey(await open(deps.dataKey, record.sealedKey, deps.accountId)),
-    },
-    deps.fetchImpl,
-    deps.now,
-  );
+  const client = await clientFor(deps, record, { tenancy: preview.tenancy, user: preview.user });
 
   let home: string;
   let ads: string[];
@@ -116,27 +145,7 @@ export async function connectAccount(deps: OnboardingDeps, previewText: string):
     ads = (await listAvailabilityDomains(client, home, preview.tenancy)).map((ad) => ad.name);
   } catch (err) {
     if (!(err instanceof OciError)) throw err;
-    if (err.status === 401) {
-      return {
-        ok: false,
-        error: {
-          kind: "not-authenticated",
-          message: "Oracle didn't accept the key yet. Check that you clicked Add on the key from step 1, wait a minute, and try again.",
-          opcRequestId: err.opcRequestId,
-        },
-      };
-    }
-    if (err.status === 404 || err.status === 403) {
-      return {
-        ok: false,
-        error: {
-          kind: "not-authorized",
-          message: "The key works, but this Oracle user isn't allowed to read the account. Add the key to the account's administrator user.",
-          opcRequestId: err.opcRequestId,
-        },
-      };
-    }
-    return { ok: false, error: { kind: "oci-error", message: err.message, status: err.status, code: err.code, opcRequestId: err.opcRequestId } };
+    return { ok: false, error: describeOciError(err) };
   }
 
   const connected: AccountRecord = {

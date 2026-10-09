@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { importDataKey } from "./crypto/envelope";
 import type { Env } from "./env";
 import { connectAccount, createAccount, getAccount, type OnboardingDeps } from "./onboarding";
+import { planAccount } from "./planning";
 
 /** One Durable Object per onboarding (named by the capability id in the setup link). */
 export class Account extends DurableObject<Env> {
@@ -19,5 +20,9 @@ export class Account extends DurableObject<Env> {
 
   async connectOci(accountId: string, preview: string) {
     return connectAccount(await this.deps(accountId), preview);
+  }
+
+  async plan(accountId: string) {
+    return planAccount(await this.deps(accountId));
   }
 }

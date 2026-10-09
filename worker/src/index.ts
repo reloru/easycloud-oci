@@ -24,6 +24,14 @@ export default {
       return json({ id, ...account }, 201);
     }
 
+    const planMatch = /^\/api\/accounts\/([^/]+)\/plan$/.exec(pathname);
+    if (planMatch && request.method === "GET") {
+      const id = planMatch[1]!;
+      if (!ACCOUNT_ID.test(id)) return json({ error: "not-found" }, 404);
+      const result = await env.ACCOUNTS.getByName(id).plan(id);
+      return json(result, result.ok ? 200 : result.error.kind === "not-connected" ? 409 : 502);
+    }
+
     const match = /^\/api\/accounts\/([^/]+)(\/connect)?$/.exec(pathname);
     if (match) {
       const id = match[1]!;
