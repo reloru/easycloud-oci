@@ -11,6 +11,7 @@
   2. Implement the OCI request signer.
   3. Unit-test the signer against Oracle's published signing test vectors (sample keys and expected signatures in the "Request Signatures" doc).
 - **Blockers:** none.
+- **Git:** `main` requires PRs (squash only). Flow: `claude/*` branch, then PR, then immediate squash-merge (see `CLAUDE.md` → Git).
 - **Note:** the auto-approve hook was added mid-session. It is expected to load at the next session start. *Whether it applies mid-session is unverified.*
 
 ## Goal

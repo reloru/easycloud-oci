@@ -13,7 +13,7 @@ production. The configuration is defined in `docs/PLAN.md`.
    - Update `docs/PLAN.md`: Status, milestone checkboxes, decisions, and open
      items.
    - Update this file if the rules or the layout changed.
-   - Commit and push to `main`.
+   - Merge to `main` (see Git below).
 
    A new session must be able to resume from the repo alone.
 
@@ -45,9 +45,16 @@ production. The configuration is defined in `docs/PLAN.md`.
   - Label unverified claims inline, where they appear.
   - Community-sourced claims say so.
 - **Git.**
-  - `main` is the state of record. Commit directly to `main` and push with
-    `git push -u origin main`.
-  - No PRs unless the user asks.
+  - `main` is the state of record. A ruleset protects it: it requires a PR,
+    allows only squash merges, requires linear history, and blocks force
+    pushes and deletion. Zero approvals are needed, so a direct push to `main`
+    is rejected.
+  - Standard flow, which the user has standing-approved:
+    1. Commit on a `claude/*` branch and push it.
+    2. Open a PR with the GitHub MCP tools.
+    3. Squash-merge it immediately.
+  - After each merge, restart the branch from the new `main`:
+    `git fetch origin main && git checkout -B <branch> origin/main`.
   - Use the commit trailer given in the session's system instructions.
 
 ## Product rules (non-negotiable)
