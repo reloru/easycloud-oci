@@ -38,7 +38,8 @@ async function run(fake: FakeOci, d: Deployment, maxSteps = 200) {
   throw new Error("did not finish");
 }
 
-const fresh = (p = plan()) => newDeployment(p, { region: "us-ashburn-1", compartmentId: C, sshPublicKey: SSH, now: new Date(Date.UTC(2026, 9, 9)) });
+const fresh = (p = plan()) =>
+  newDeployment(p, { region: "us-ashburn-1", compartmentId: C, sshPublicKey: SSH, components: { keepalive: { enabled: true } }, now: new Date(Date.UTC(2026, 9, 9)) });
 
 describe("deployment", () => {
   it("builds the network, rotates ADs on capacity errors, and ends with all servers running", async () => {
@@ -73,6 +74,20 @@ describe("deployment", () => {
     });
     expect(fake.launches[1]!.body).not.toHaveProperty("shapeConfig");
     expect(new Set(fake.launches.map((l) => l.token)).size).toBe(fake.launches.length);
+  });
+
+  it("passes each server its own cloud-init user_data", async () => {
+    const fake = new FakeOci();
+    fake.capacity = new Set(ADS);
+    const d = fresh(plan({ action: "reuse", vcnId: "v", subnetId: "s", displayName: "n" }));
+    const userData = { "easycloud-a1": "QTE=", "easycloud-micro-1": "TTE=", "easycloud-micro-2": "TTI=" };
+    await advance(d, { client: await fakeClient(fake), userData, now: () => new Date(), retrySeed: "acct" });
+    expect(fake.launches.map((l) => [l.body.displayName, l.body.metadata.user_data])).toEqual([
+      ["easycloud-a1", "QTE="],
+      ["easycloud-micro-1", "TTE="],
+      ["easycloud-micro-2", "TTI="],
+    ]);
+    expect(d).not.toHaveProperty("userData");
   });
 
   it("keeps retrying for capacity at the capacity pace until a slot appears", async () => {

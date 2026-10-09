@@ -1,4 +1,5 @@
 import type { Env } from "./env";
+import type { ComponentSelection } from "./vm/components";
 
 export { Account } from "./account";
 
@@ -24,7 +25,7 @@ export default {
       return json({ id, ...account }, 201);
     }
 
-    const action = /^\/api\/accounts\/([^/]+)\/(plan|deploy|deployment|cancel)$/.exec(pathname);
+    const action = /^\/api\/accounts\/([^/]+)\/(plan|deploy|deployment|cancel|control-sheet)$/.exec(pathname);
     if (action) {
       const [, id, verb] = action as unknown as [string, string, string];
       if (!ACCOUNT_ID.test(id)) return json({ error: "not-found" }, 404);
@@ -37,6 +38,10 @@ export default {
         const deployment = await stub.deployment();
         return deployment ? json(deployment) : json({ error: "not-found" }, 404);
       }
+      if (verb === "control-sheet" && request.method === "GET") {
+        const sheets = await stub.controlSheets();
+        return sheets ? json(sheets) : json({ error: "not-found" }, 404);
+      }
       if (verb === "cancel" && request.method === "POST") {
         const deployment = await stub.cancel();
         return deployment ? json(deployment) : json({ error: "not-found" }, 404);
@@ -44,15 +49,19 @@ export default {
       if (verb === "deploy" && request.method === "POST") {
         const text = await request.text();
         if (new TextEncoder().encode(text).byteLength > MAX_PREVIEW_BYTES) return json({ error: "too-large" }, 413);
-        let key: unknown;
+        let body: { sshPublicKey?: unknown; components?: unknown };
         try {
-          key = (JSON.parse(text) as { sshPublicKey?: unknown }).sshPublicKey;
+          body = JSON.parse(text) as typeof body;
         } catch {
           return json({ error: "invalid-json" }, 400);
         }
-        if (typeof key !== "string") return json({ error: "missing-ssh-key" }, 400);
-        const result = await stub.deploy(id, key);
-        return json(result, result.ok ? 202 : result.error.kind === "invalid-ssh-key" ? 422 : 409);
+        if (typeof body.sshPublicKey !== "string") return json({ error: "missing-ssh-key" }, 400);
+        if (body.components !== undefined && (typeof body.components !== "object" || body.components === null)) {
+          return json({ error: "invalid-components" }, 400);
+        }
+        const result = await stub.deploy(id, body.sshPublicKey, body.components as ComponentSelection | undefined);
+        const invalidInput = !result.ok && (result.error.kind === "invalid-ssh-key" || result.error.kind === "invalid-components");
+        return json(result, result.ok ? 202 : invalidInput ? 422 : 409);
       }
       return json({ error: "method-not-allowed" }, 405);
     }

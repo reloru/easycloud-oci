@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
-import { importDataKey } from "./crypto/envelope";
-import { advance, newDeployment, PACING, validSshPublicKey, type Deployment } from "./deploy";
+import { importDataKey, open, seal } from "./crypto/envelope";
+import { advance, newDeployment, PACING, serverNames, validSshPublicKey, type Deployment } from "./deploy";
 import type { Env } from "./env";
 import {
   clientFor,
@@ -12,6 +12,17 @@ import {
   type OnboardingDeps,
 } from "./onboarding";
 import { planAccount } from "./planning";
+import {
+  buildUserData,
+  ComponentError,
+  controlSheet,
+  DEFAULT_SELECTION,
+  encodeUserData,
+  publicSelection,
+  validateSelection,
+  type ComponentSelection,
+  type ControlSection,
+} from "./vm/components";
 
 const DEPLOYMENT = "deployment";
 
@@ -41,7 +52,13 @@ export class Account extends DurableObject<Env> {
     return planAccount(await this.deps(accountId));
   }
 
-  async deploy(accountId: string, sshPublicKey: string): Promise<DeployResult> {
+  async deploy(accountId: string, sshPublicKey: string, components: ComponentSelection = DEFAULT_SELECTION): Promise<DeployResult> {
+    try {
+      validateSelection(components);
+    } catch (err) {
+      if (err instanceof ComponentError) return { ok: false, error: { kind: "invalid-components", message: err.message } };
+      throw err;
+    }
     if (!validSshPublicKey(sshPublicKey)) {
       return { ok: false, error: { kind: "invalid-ssh-key", message: "That doesn't look like an SSH public key. Copy the public key (it starts with ssh-ed25519) from Termius." } };
     }
@@ -58,19 +75,38 @@ export class Account extends DurableObject<Env> {
     if (!planned.plan.create.length) {
       return { ok: false, error: { kind: "nothing-to-do", message: "The free servers already exist in this account." } };
     }
+    const dataKey = await importDataKey(this.env.KEY_ENCRYPTION_KEY);
+    const sealedUserData: Record<string, string> = {};
+    for (const { name, role } of serverNames(planned.plan)) {
+      const script = encodeUserData(buildUserData(role, name, components));
+      sealedUserData[name] = await seal(dataKey, new TextEncoder().encode(script), `${accountId}:${name}`);
+    }
     const deployment = newDeployment(planned.plan, {
       region: record!.homeRegion!,
       compartmentId: record!.tenancy!,
       sshPublicKey,
+      components: publicSelection(components),
+      sealedUserData,
       now: new Date(),
     });
     await this.ctx.storage.put(DEPLOYMENT, deployment);
     await this.ctx.storage.setAlarm(Date.now() + PACING.stepMs);
-    return { ok: true, deployment };
+    const { sealedUserData: _sealed, ...visible } = deployment;
+    return { ok: true, deployment: visible as Deployment };
   }
 
-  async deployment(): Promise<Deployment | undefined> {
-    return this.ctx.storage.get<Deployment>(DEPLOYMENT);
+  async deployment(): Promise<Omit<Deployment, "sealedUserData"> | undefined> {
+    const d = await this.ctx.storage.get<Deployment>(DEPLOYMENT);
+    if (!d) return undefined;
+    const { sealedUserData: _sealed, ...rest } = d;
+    return rest;
+  }
+
+  /** Control sheet per server, from the stored (secret-free) component selection. */
+  async controlSheets(): Promise<{ server: string; role: string; publicIp?: string; sections: ControlSection[] }[] | undefined> {
+    const d = await this.ctx.storage.get<Deployment>(DEPLOYMENT);
+    if (!d) return undefined;
+    return d.servers.map((s) => ({ server: s.name, role: s.role, publicIp: s.publicIp, sections: controlSheet(s.role, d.components) }));
   }
 
   async cancel(): Promise<Deployment | undefined> {
@@ -92,7 +128,14 @@ export class Account extends DurableObject<Env> {
     try {
       const deps = await this.deps(record.accountId);
       const client = await clientFor(deps, record, { tenancy: record.tenancy, user: record.user });
-      next = (await advance(d, { client, now: () => new Date(), retrySeed: `${record.accountId.slice(0, 12)}-${Date.parse(d.createdAt)}` })).nextDelayMs;
+      const userData: Record<string, string> = {};
+      for (const s of d.servers) {
+        const sealed = d.sealedUserData?.[s.name];
+        if (sealed && !s.instanceId && s.state !== "running" && s.state !== "failed") {
+          userData[s.name] = new TextDecoder().decode(await open(deps.dataKey, sealed, `${record.accountId}:${s.name}`));
+        }
+      }
+      next = (await advance(d, { client, userData, now: () => new Date(), retrySeed: `${record.accountId.slice(0, 12)}-${Date.parse(d.createdAt)}` })).nextDelayMs;
     } catch (err) {
       // Unexpected failure (network error, bug): keep the loop alive with backoff instead of losing it.
       next = d.backoffMs;
