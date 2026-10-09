@@ -4,6 +4,7 @@
  * support asks for.
  */
 import { signRequest, type OciCredentials } from "./signer";
+import { encodeRfc3986 } from "./url";
 
 export class OciError extends Error {
   constructor(
@@ -27,12 +28,30 @@ export class OciClient {
   ) {}
 
   async request<T>(method: string, url: string, body?: unknown): Promise<T> {
+    return (await this.send<T>(method, url, body)).data;
+  }
+
+  /** GET every page of an OCI list operation (follows the opc-next-page header). */
+  async listAll<T>(url: string, maxPages = 50): Promise<T[]> {
+    const items: T[] = [];
+    let page: string | null = null;
+    for (let i = 0; i < maxPages; i++) {
+      const pageUrl: string = page === null ? url : `${url}${url.includes("?") ? "&" : "?"}page=${encodeRfc3986(page)}`;
+      const { data, headers } = await this.send<T[]>("GET", pageUrl);
+      items.push(...data);
+      page = headers.get("opc-next-page");
+      if (!page) return items;
+    }
+    throw new Error(`Listing exceeded ${maxPages} pages: ${url}`);
+  }
+
+  private async send<T>(method: string, url: string, body?: unknown): Promise<{ data: T; headers: Headers }> {
     const signed = await signRequest(
       { method, url, body: body === undefined ? undefined : JSON.stringify(body) },
       this.creds,
       this.clock(),
     );
-    const res = await this.fetchImpl(new Request(url, { method, headers: signed.headers, body: signed.body }));
+    const res = await this.fetchImpl(new Request(signed.url, { method, headers: signed.headers, body: signed.body }));
     const text = await res.text();
     if (!res.ok) {
       let code = "Unknown";
@@ -46,6 +65,6 @@ export class OciClient {
       }
       throw new OciError(res.status, code, message, res.headers.get("opc-request-id"));
     }
-    return (text ? JSON.parse(text) : undefined) as T;
+    return { data: (text ? JSON.parse(text) : undefined) as T, headers: res.headers };
   }
 }

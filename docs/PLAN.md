@@ -107,6 +107,11 @@ What cannot be automated:
   - `tsc` is clean.
   - The local workerd runtime sends the `Date` header unchanged, so there is no need for `x-date`. *Production edge not yet confirmed; that happens at M2.*
   - Fixtures regenerate with `worker/scripts/gen-signer-fixtures.py` (command in its header).
+  - An adversarial review (2 agents: spec conformance, and differential tests against the SDK with wire capture) found three issues. All are fixed:
+    - The Limits host must be `limits.{region}.oci.oraclecloud.com`; the old host returns NXDOMAIN. Endpoints now follow the SDK's per-service templates.
+    - A bare `?` or a fragment was signed without being sent. The signer now normalises the URL and returns `SignedRequest.url`, and the client sends exactly that.
+    - `ociUrl` now rejects empty, `.` and `..` path segments, which WHATWG URL parsing would otherwise collapse.
+  - The review also captured on the wire, in local workerd, that `Date`, `Host`, `Content-Length` (including 0), and the UTF-8 body length all go out exactly as signed.
 - [ ] **M2:** Onboarding. *Code done (see below); live run pending.*
   - The app generates the API key pair and shows the public PEM.
   - The user pastes it in the Console and pastes the config preview back.

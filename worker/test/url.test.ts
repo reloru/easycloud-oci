@@ -23,8 +23,21 @@ describe("ociUrl", () => {
     expect(ociUrl("https://h.example", ["a"], { n: 2, b: false })).toBe("https://h.example/a?n=2&b=false");
   });
 
+  it("uses the SDK endpoint templates per service", () => {
+    expect(ociEndpoint("iaas", "us-ashburn-1")).toBe("https://iaas.us-ashburn-1.oraclecloud.com");
+    expect(ociEndpoint("identity", "us-ashburn-1")).toBe("https://identity.us-ashburn-1.oci.oraclecloud.com");
+    expect(ociEndpoint("limits", "us-ashburn-1")).toBe("https://limits.us-ashburn-1.oci.oraclecloud.com");
+    expect(ociEndpoint("telemetry", "us-ashburn-1")).toBe("https://telemetry.us-ashburn-1.oraclecloud.com");
+  });
+
   it("encodes path segments individually", () => {
     expect(ociUrl("https://h.example", ["20160918", "a b/c"])).toBe("https://h.example/20160918/a%20b%2Fc");
+  });
+
+  it("rejects empty and dot path segments", () => {
+    for (const bad of ["", ".", ".."]) {
+      expect(() => ociUrl("https://h.example", ["20160918", bad, "vcns"])).toThrow(/Invalid OCI path segment/);
+    }
   });
 
   it("survives WHATWG URL parsing unchanged for every printable ASCII character", () => {

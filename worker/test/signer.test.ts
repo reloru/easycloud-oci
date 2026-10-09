@@ -72,6 +72,21 @@ describe("signRequest", () => {
     expect(signed.headers.get("date")).toBe("Thu, 09 Jan 2014 21:31:40 GMT");
   });
 
+  it("signs and returns a canonical URL: bare '?' and fragments are dropped", async () => {
+    const c = await creds();
+    for (const raw of [
+      "https://iaas.us-ashburn-1.oraclecloud.com/20160918/vcns?",
+      "https://iaas.us-ashburn-1.oraclecloud.com/20160918/vcns?#frag",
+      "https://iaas.us-ashburn-1.oraclecloud.com/20160918/vcns#frag",
+    ]) {
+      const signed = await signRequest({ method: "GET", url: raw, headers: { date: "Thu, 09 Jan 2014 21:31:40 GMT" } }, c);
+      expect(signed.url).toBe("https://iaas.us-ashburn-1.oraclecloud.com/20160918/vcns");
+      expect(signed.signingString).toContain("(request-target): get /20160918/vcns\n");
+    }
+    const withQuery = await signRequest({ method: "GET", url: "https://iaas.us-ashburn-1.oraclecloud.com/20160918/vcns?a=1#f" }, c);
+    expect(withQuery.url).toBe("https://iaas.us-ashburn-1.oraclecloud.com/20160918/vcns?a=1");
+  });
+
   it("rejects a body on non-body methods and unknown methods", async () => {
     const c = await creds();
     await expect(signRequest({ method: "GET", url: "https://x.oraclecloud.com/a", body: "x" }, c)).rejects.toThrow(/must not have a body/);

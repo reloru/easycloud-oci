@@ -3,7 +3,9 @@
  * https://docs.oracle.com/en-us/iaas/Content/API/Concepts/signingrequests.htm
  *
  * Header selection, ordering and the Authorization layout mirror Oracle's
- * Python SDK (oci.signer), which the tests use as the byte-exact reference.
+ * Python SDK (oci.signer), which the tests use as the byte-exact reference for
+ * canonical (ociUrl-built) URLs. The URL is normalised (fragment and a bare "?"
+ * dropped) and returned as SignedRequest.url: always send that exact URL.
  */
 
 export interface OciCredentials {
@@ -23,6 +25,8 @@ export interface OciRequest {
 }
 
 export interface SignedRequest {
+  /** Canonical URL that was signed; send exactly this. */
+  url: string;
   /** Headers to send, including date, authorization and (for body methods) the content headers. */
   headers: Headers;
   /** Encoded body to send (body methods only); content-length and x-content-sha256 describe these bytes. */
@@ -86,6 +90,8 @@ export async function signRequest(
   if (!SIGNABLE_METHODS.has(method)) throw new Error(`Cannot sign HTTP method ${method}`);
 
   const url = new URL(request.url);
+  url.hash = "";
+  if (url.search === "") url.search = ""; // drops a bare "?" that fetch would otherwise send
   const headers = new Headers(request.headers);
   if (!headers.has("date")) headers.set("date", httpDate(now));
 
@@ -118,5 +124,5 @@ export async function signRequest(
     "authorization",
     `Signature algorithm="rsa-sha256",headers="${signed.join(" ")}",keyId="${keyId(creds)}",signature="${signature}",version="1"`,
   );
-  return { headers, body, signingString };
+  return { url: url.href, headers, body, signingString };
 }
