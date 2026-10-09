@@ -11,7 +11,7 @@
 
      Check the logged limit values. They show how the Limits API reports the Always Free A1, micro and storage limits (AD-scoped or regional); adjust `planLayout`'s `Allowance` source if needed. For the reference tenancy, the plan should report "nothing to create".
   2. Deploy (maintainer action; see Open items). Run the onboarding page against the reference tenancy with an app-generated second API key. That closes M2.
-  3. M4 network create/reuse. It can be built and unit-tested against a fake OCI in the meantime, but live create tests need an empty tenancy.
+  3. M5: launch plus the Durable Object retry loop. M4 code is done; live create tests need an empty tenancy.
 - **Live tests:** these need environment variables in the cloud environment settings (values are never committed):
   - `OCI_TEST_KEY_B64` (base64 of a PKCS#8 PEM)
   - `OCI_TEST_USER`
@@ -144,8 +144,16 @@ What cannot be automated:
     - `GET /api/accounts/:id/plan`.
     - The page's "Check what EasyCloud will set up" view.
   - The planner uses the documented allowance (`ALWAYS_FREE`) until the live limit values are confirmed.
-- [ ] **M4:** Network: create or reuse.
+- [ ] **M4:** Network: create or reuse. *Code done; live run pending (needs an empty tenancy).*
   - *Done when* it is idempotent, so re-running creates nothing new.
+  - Built so far: `src/oci/network.ts` → `ensureNetwork`. Each step looks before it creates:
+    - VCN `easycloud-vcn`, 10.0.0.0/16, tagged `easycloud=managed`.
+    - An enabled internet gateway.
+    - The default route table, with 0.0.0.0/0 pointing at the gateway.
+    - The default security list, with SSH (TCP 22) open.
+    - A regional public subnet, 10.0.0.0/24.
+  - It polls each resource until AVAILABLE and sends a per-run `opc-retry-token` on creates.
+  - Tests use a stateful fake OCI. They cover a full build, a second run with zero writes, repair of a half-built network, retry tokens, and the poll timeout.
 - [ ] **M5:** Launch, the Durable Object retry loop, and the status page.
   - *Done when* capacity, limit, and rate errors are each handled distinctly and the loop survives Worker restarts.
 - [ ] **M6:** cloud-init components with control sheets, keep-alive first.
@@ -173,6 +181,7 @@ What cannot be automated:
 - **M6 (Tailscale toggle only):** Direct WireGuard connections may need inbound 41641/udp in both the security list and iptables, inserted above the REJECT rule. Without it, traffic is expected to fall back to relays. *Unverified. Check Tailscale's docs at M6.* Exit-node setup is out of scope.
 
 ## Tooling notes
+- `opc-retry-token` must be unique per run. OCI keeps tokens for 24 h and may answer a reused token with the original resource, even after that resource was deleted. Re-runs stay idempotent through the lookups.
 - `@cloudflare/vitest-pool-workers` is deprecated and renamed to `@cloudflare/vitest-plugin`; the plugin is used via `cloudflareTest()` in `vitest.config.ts`.
 - `worker/.npmrc` sets `legacy-peer-deps=true`, because npm 10.9 crashes with `Cannot read properties of null (reading 'edgesOut')` while resolving this peer set. All peers are listed explicitly in `package.json`.
 - Dependency versions are pinned to releases at least two weeks old at install time.
