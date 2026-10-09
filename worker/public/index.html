@@ -73,6 +73,23 @@
   <section id="step-plan" hidden>
     <h2>Your free servers</h2>
     <div id="plan"></div>
+    <div id="deploy-form" hidden>
+      <h3>Your SSH key</h3>
+      <p class="note">In Termius, open <b>Keychain</b>, create an <b>ED25519</b> key, and copy its <b>public</b> key (it starts with <code>ssh-ed25519</code>). Only the public key goes here.</p>
+      <textarea id="ssh-key" placeholder="ssh-ed25519 AAAA…" autocapitalize="off" autocorrect="off" spellcheck="false" style="min-height:5rem"></textarea>
+      <button id="deploy">Set up my servers</button>
+      <div id="deploy-error" class="bad" hidden></div>
+    </div>
+  </section>
+
+  <section id="step-progress" hidden>
+    <h2>Setting up</h2>
+    <p id="progress-status"></p>
+    <ul class="plain" id="progress-servers"></ul>
+    <p class="note" id="progress-next"></p>
+    <h3>Activity</h3>
+    <ul class="plain note" id="progress-log"></ul>
+    <button id="cancel" class="secondary">Stop setting up</button>
   </section>
 </main>
 <script>
@@ -150,8 +167,64 @@
     for (const b of plan.blockers) html += `<p class="bad">${esc(b)}</p>`;
     for (const n of plan.notes) if (!n.startsWith("Nothing to create")) html += `<p class="note">${esc(n)}</p>`;
     $("plan").innerHTML = html;
+    show("deploy-form", plan.create.length > 0 && plan.blockers.length === 0);
     show("step-plan");
   }
+
+  const STATE_TEXT = {
+    queued: () => "Waiting to start",
+    "waiting-capacity": (s) => `Waiting for Oracle to free up capacity — EasyCloud keeps trying (attempt ${s.attempts})`,
+    provisioning: () => "Starting up…",
+    running: (s) => s.publicIp ? `Running at ${s.publicIp}` : "Running",
+    failed: (s) => s.message || "Could not be created",
+  };
+  const STATUS_TEXT = {
+    network: "Preparing the network…",
+    servers: "Creating your servers…",
+    done: "Done. Your servers are ready.",
+    failed: "Setup stopped.",
+    cancelled: "Setup was stopped.",
+  };
+  let pollTimer = null;
+
+  function renderProgress(d) {
+    show("step-progress");
+    $("progress-status").textContent = STATUS_TEXT[d.status] || d.status;
+    $("progress-servers").innerHTML = d.servers.map((s) => {
+      const label = s.role === "a1" ? "Ampere server" : "Small AMD server";
+      return `<li><b>${esc(label)}</b> (${esc(s.name)})<br>${esc(STATE_TEXT[s.state](s))}</li>`;
+    }).join("");
+    $("progress-next").textContent = d.nextAttemptAt && (d.status === "servers" || d.status === "network")
+      ? `Next check: ${new Date(d.nextAttemptAt).toLocaleTimeString()}. You can close this page — setup continues.` : "";
+    $("progress-log").innerHTML = d.log.slice(-6).reverse().map((l) => `<li>${esc(new Date(l.at).toLocaleString())}: ${esc(l.message)}</li>`).join("");
+    show("cancel", d.status === "network" || d.status === "servers");
+    clearTimeout(pollTimer);
+    if (d.status === "network" || d.status === "servers") pollTimer = setTimeout(refreshProgress, 15000);
+  }
+
+  async function refreshProgress() {
+    const { res, body } = await api(`/api/accounts/${accountId()}/deployment`);
+    if (res.ok) renderProgress(body);
+  }
+
+  $("deploy").addEventListener("click", async () => {
+    const err = $("deploy-error"); err.hidden = true;
+    $("deploy").disabled = true; $("deploy").textContent = "Starting…";
+    try {
+      const { body } = await api(`/api/accounts/${accountId()}/deploy`, { method: "POST", body: JSON.stringify({ sshPublicKey: $("ssh-key").value }) });
+      if (body.ok) { show("step-plan", false); renderProgress(body.deployment); return; }
+      const e = body.error || {};
+      err.textContent = (e.message || "Couldn't start.") + (e.details ? " " + e.details.join(" ") : "");
+      err.hidden = false;
+    } finally {
+      $("deploy").disabled = false; $("deploy").textContent = "Set up my servers";
+    }
+  });
+
+  $("cancel").addEventListener("click", async () => {
+    const { res, body } = await api(`/api/accounts/${accountId()}/cancel`, { method: "POST" });
+    if (res.ok) renderProgress(body);
+  });
 
   $("check").addEventListener("click", async () => {
     const err = $("plan-error"); err.hidden = true;
@@ -170,7 +243,10 @@
     const id = accountId();
     if (!id) return;
     const { res, body } = await api(`/api/accounts/${id}`);
-    if (res.ok) render(body);
+    if (res.ok) {
+      render(body);
+      if (body.state === "connected") await refreshProgress();
+    }
   })();
 })();
 </script>

@@ -14,6 +14,7 @@ import { generateApiKey, importSigningKey } from "./oci/keys";
 const RECORD = "account";
 
 export interface AccountRecord {
+  accountId?: string;
   state: "awaiting-key" | "connected";
   createdAt: string;
   publicPem: string;
@@ -95,6 +96,7 @@ export async function createAccount(deps: OnboardingDeps): Promise<PublicAccount
   if (existing) return toPublic(existing);
   const key = await generateApiKey();
   const record: AccountRecord = {
+    accountId: deps.accountId,
     state: "awaiting-key",
     createdAt: (deps.now?.() ?? new Date()).toISOString(),
     publicPem: key.publicPem,

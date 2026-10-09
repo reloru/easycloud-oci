@@ -27,6 +27,24 @@ describe("onboarding routes", () => {
     expect(await res.json()).toMatchObject({ ok: false, error: { kind: "not-connected" } });
   });
 
+  it("validates deploy requests and reports no deployment before one starts", async () => {
+    const { id } = (await (await call("/api/accounts", { method: "POST" })).json()) as { id: string };
+    expect((await call(`/api/accounts/${id}/deployment`)).status).toBe(404);
+    expect((await call(`/api/accounts/${id}/cancel`, { method: "POST" })).status).toBe(404);
+    expect((await call(`/api/accounts/${id}/deploy`, { method: "POST", body: "{}" })).status).toBe(400);
+
+    const bad = await call(`/api/accounts/${id}/deploy`, { method: "POST", body: JSON.stringify({ sshPublicKey: "-----BEGIN OPENSSH PRIVATE KEY-----" }) });
+    expect(bad.status).toBe(422);
+    expect(await bad.json()).toMatchObject({ ok: false, error: { kind: "invalid-ssh-key" } });
+
+    const notConnected = await call(`/api/accounts/${id}/deploy`, {
+      method: "POST",
+      body: JSON.stringify({ sshPublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzW0X0h4d3l9vHqmGQyQ1nB0p6tZQkzv3a2w8m3E1c7" }),
+    });
+    expect(notConnected.status).toBe(409);
+    expect(await notConnected.json()).toMatchObject({ ok: false, error: { kind: "not-connected" } });
+  });
+
   it("404s unknown or malformed account ids", async () => {
     expect((await call("/api/accounts/AAAAAAAAAAAAAAAAAAAAAA")).status).toBe(404);
     expect((await call("/api/accounts/not-an-id")).status).toBe(404);
