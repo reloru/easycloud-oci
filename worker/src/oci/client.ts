@@ -27,8 +27,8 @@ export class OciClient {
     private readonly clock: () => Date = () => new Date(),
   ) {}
 
-  async request<T>(method: string, url: string, body?: unknown): Promise<T> {
-    return (await this.send<T>(method, url, body)).data;
+  async request<T>(method: string, url: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
+    return (await this.send<T>(method, url, body, extraHeaders)).data;
   }
 
   /** GET every page of an OCI list operation (follows the opc-next-page header). */
@@ -46,9 +46,14 @@ export class OciClient {
     throw new Error(`Listing exceeded ${maxPages} pages: ${url}`);
   }
 
-  private async send<T>(method: string, url: string, body?: unknown): Promise<{ data: T; headers: Headers }> {
+  private async send<T>(
+    method: string,
+    url: string,
+    body?: unknown,
+    extraHeaders?: Record<string, string>,
+  ): Promise<{ data: T; headers: Headers }> {
     const signed = await signRequest(
-      { method, url, body: body === undefined ? undefined : JSON.stringify(body) },
+      { method, url, headers: extraHeaders, body: body === undefined ? undefined : JSON.stringify(body) },
       this.creds,
       this.clock(),
     );
