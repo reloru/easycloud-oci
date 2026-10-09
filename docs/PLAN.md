@@ -3,11 +3,15 @@
 ## Status
 - **Updated:** 2026-10-09
 - **Done:** Step 1 (repo setup) and M1 (Worker skeleton and OCI request signer). See Milestones.
-- **M2 status:** implemented and tested offline. 44 tests pass; `tsc` is clean; the onboarding page passes a headless smoke test at phone size. It is not done yet: a live run is still needed.
+- **M2 and M3 status:** implemented and tested offline. 61 tests pass; `tsc` is clean; the page passes a headless smoke test at phone size. Both still need a live run.
 - **Next action:**
-  1. When the `OCI_TEST_*` env vars exist, `npm test` also runs `test/live.test.ts`, which makes **read-only** calls for the home region and the ADs. Confirm it passes.
-  2. Deploy (needs the maintainer; see Open items). Then run the onboarding page against the maintainer's tenancy using an app-generated second API key. That closes M2.
-  3. M3 discovery: limits, storage use, VCNs, images per shape. It can be built against mocked responses in the meantime.
+  1. When the `OCI_TEST_*` env vars exist, `npm test` also runs `test/live.test.ts`. It has a GET-only guard and covers:
+     - the home region and ADs;
+     - full discovery plus a dry-run plan, with both logged.
+
+     Check the logged limit values. They show how the Limits API reports the Always Free A1, micro and storage limits (AD-scoped or regional); adjust `planLayout`'s `Allowance` source if needed. For the reference tenancy, the plan should report "nothing to create".
+  2. Deploy (maintainer action; see Open items). Run the onboarding page against the reference tenancy with an app-generated second API key. That closes M2.
+  3. M4 network create/reuse. It can be built and unit-tested against a fake OCI in the meantime, but live create tests need an empty tenancy.
 - **Live tests:** these need environment variables in the cloud environment settings (values are never committed):
   - `OCI_TEST_KEY_B64` (base64 of a PKCS#8 PEM)
   - `OCI_TEST_USER`
@@ -131,8 +135,15 @@ What cannot be automated:
     - `POST /api/accounts`
     - `GET /api/accounts/:id`
     - `POST /api/accounts/:id/connect` with body `{preview}`
-- [ ] **M3:** Discovery: limits, storage use, VCNs, images per shape.
+- [ ] **M3:** Discovery: limits, storage use, VCNs, images per shape. *Code done; live dry-run pending.*
   - *Done when* a dry-run against the reference tenancy prints a correct layout plan.
+  - Built so far:
+    - `src/oci/discovery.ts`: compartment subtree, instances, boot and block volumes (excluding TERMINATED), VCNs, public subnets routed to an enabled IGW, limit values, and the newest 24.04 Minimal image per shape.
+    - `src/plan.ts`: the pure planner. A1 first; 47 GB reserved per micro; network reuse, create or blocked; plain-language blockers and notes.
+    - `src/planning.ts`: glue code.
+    - `GET /api/accounts/:id/plan`.
+    - The page's "Check what EasyCloud will set up" view.
+  - The planner uses the documented allowance (`ALWAYS_FREE`) until the live limit values are confirmed.
 - [ ] **M4:** Network: create or reuse.
   - *Done when* it is idempotent, so re-running creates nothing new.
 - [ ] **M5:** Launch, the Durable Object retry loop, and the status page.

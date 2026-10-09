@@ -20,6 +20,13 @@ describe("onboarding routes", () => {
     expect(await status.json()).toMatchObject({ id: body.id, fingerprint: body.fingerprint });
   });
 
+  it("refuses to plan before the account is connected", async () => {
+    const { id } = (await (await call("/api/accounts", { method: "POST" })).json()) as { id: string };
+    const res = await call(`/api/accounts/${id}/plan`);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ ok: false, error: { kind: "not-connected" } });
+  });
+
   it("404s unknown or malformed account ids", async () => {
     expect((await call("/api/accounts/AAAAAAAAAAAAAAAAAAAAAA")).status).toBe(404);
     expect((await call("/api/accounts/not-an-id")).status).toBe(404);

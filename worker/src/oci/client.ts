@@ -38,6 +38,7 @@ export class OciClient {
     for (let i = 0; i < maxPages; i++) {
       const pageUrl: string = page === null ? url : `${url}${url.includes("?") ? "&" : "?"}page=${encodeRfc3986(page)}`;
       const { data, headers } = await this.send<T[]>("GET", pageUrl);
+      if (!Array.isArray(data)) throw new Error(`Expected a JSON array from ${url}`);
       items.push(...data);
       page = headers.get("opc-next-page");
       if (!page) return items;
