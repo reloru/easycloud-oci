@@ -56,6 +56,8 @@ production. The configuration is defined in `docs/PLAN.md`.
   - After each merge, restart the branch from the new `main`:
     `git fetch origin main && git checkout -B <branch> origin/main`.
   - Use the commit trailer given in the session's system instructions.
+  - Do not narrate git or PR mechanics in replies. Mention them only if
+    something fails.
 
 ## Product rules (non-negotiable)
 - **VM components are opt-in toggles.** The components are keep-alive, Docker,
