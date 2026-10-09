@@ -3,13 +3,11 @@
 ## Status
 - **Updated:** 2026-10-09
 - **Done:** Step 1 (repo setup) and M1 (Worker skeleton and OCI request signer). See Milestones.
-- **Next action:** M2 (onboarding), in this order:
-  1. Generate the API key pair and compute the OCI fingerprint.
-  2. Parse the config preview and cross-check its fingerprint.
-  3. Encrypt the stored key.
-  4. Build an OCI fetch client with error parsing.
-  5. Call `ListRegionSubscriptions` and `ListAvailabilityDomains`.
-  6. Add the onboarding API routes.
+- **M2 status:** implemented and tested offline. 44 tests pass; `tsc` is clean; the onboarding page passes a headless smoke test at phone size. It is not done yet: a live run is still needed.
+- **Next action:**
+  1. When the `OCI_TEST_*` env vars exist, `npm test` also runs `test/live.test.ts`, which makes **read-only** calls for the home region and the ADs. Confirm it passes.
+  2. Deploy (needs the maintainer; see Open items). Then run the onboarding page against the maintainer's tenancy using an app-generated second API key. That closes M2.
+  3. M3 discovery: limits, storage use, VCNs, images per shape. It can be built against mocked responses in the meantime.
 - **Live tests:** these need environment variables in the cloud environment settings (values are never committed):
   - `OCI_TEST_KEY_B64` (base64 of a PKCS#8 PEM)
   - `OCI_TEST_USER`
@@ -96,6 +94,7 @@ What cannot be automated:
 | Status / notify | MVP is a reopenable status page. Web Push comes later. iOS needs the site added to the Home Screen (16.4+). Android Chrome reportedly works in-browser *(unverified)*. |
 | VM components | Opt-in toggles through cloud-init. Keep-alive is recommended. Each component ships a control sheet (see `CLAUDE.md` → Product rules). |
 | Tailscale | The user supplies an auth key. Exit-node mode is the main reason to enable Tailscale (a requested feature) and works as follows:<br>- **On the VM:** IP forwarding via sysctl (`net.ipv4.ip_forward`, `net.ipv6.conf.all.forwarding`), plus `tailscale set --advertise-exit-node`.<br>- **Approval:** the user approves the exit node in the Tailscale admin console, unless `autoApprovers` covers it.<br>- **Clients:** each client device selects the exit node.<br>- **Control sheet:** adds exit-node on/off. |
+| Frontend | A plain HTML page, `worker/public/index.html`, served by Workers static assets. No framework. The capability ID lives in the URL hash (`#a=…`), so it never appears in request logs. |
 | Session identity | Each onboarding gets a random 128-bit capability ID. It names the Durable Object and appears in the status-page URL, which the user bookmarks. There are no accounts or logins at friend scale. |
 
 ## Milestones
@@ -108,11 +107,25 @@ What cannot be automated:
   - `tsc` is clean.
   - The local workerd runtime sends the `Date` header unchanged, so there is no need for `x-date`. *Production edge not yet confirmed; that happens at M2.*
   - Fixtures regenerate with `worker/scripts/gen-signer-fixtures.py` (command in its header).
-- [ ] **M2:** Onboarding.
+- [ ] **M2:** Onboarding. *Code done (see below); live run pending.*
   - The app generates the API key pair and shows the public PEM.
   - The user pastes it in the Console and pastes the config preview back.
   - The app stores the key encrypted, resolves the home region via `ListRegionSubscriptions`, then validates with a read-only call.
   - *Done when* the flow succeeds against a real tenancy. The maintainer can test by adding a second API key to his own user, so no private key ever has to be shared.
+  - Built so far:
+    - `src/oci/keys.ts`: RSA-2048 generation and the MD5 fingerprint, which matches the Python reference.
+    - `src/oci/config-preview.ts`: preview parser.
+    - `src/crypto/envelope.ts`: AES-256-GCM, with the account ID as associated data.
+    - `src/oci/client.ts`: OCI client plus `OciError`, which keeps the `opc-request-id`.
+    - `src/oci/identity.ts`: region subscriptions and ADs.
+    - `src/onboarding.ts`: logic, with plain-language error kinds.
+    - `src/account.ts`: the Durable Object.
+    - `src/index.ts`: routes.
+    - `public/index.html`: page.
+  - Routes:
+    - `POST /api/accounts`
+    - `GET /api/accounts/:id`
+    - `POST /api/accounts/:id/connect` with body `{preview}`
 - [ ] **M3:** Discovery: limits, storage use, VCNs, images per shape.
   - *Done when* a dry-run against the reference tenancy prints a correct layout plan.
 - [ ] **M4:** Network: create or reuse.
@@ -125,6 +138,11 @@ What cannot be automated:
 - [ ] **M8:** Hardening. Replace the account-wide key with a scoped bot user, delete the admin key, add revoke.
 
 ## Open items
+- **Deploy (maintainer action):**
+  1. Connect this repo to a Worker with Cloudflare Workers Builds. Use root directory `worker`; deploy command `npx wrangler deploy`.
+  2. Set the secret `KEY_ENCRYPTION_KEY` to the output of `openssl rand -base64 32`. Changing it later makes stored keys undecryptable; the envelope has a version byte for future rotation.
+  3. Optionally attach a custom domain.
+- **Home-region fallback:** if `ListRegionSubscriptions` ever fails from a non-home region, fall back to `GetTenancy.homeRegionKey` and map the key to a name with `ListRegions`. *Not needed so far.*
 - **M8 research (deferred until M8):**
   - Does the Identity Domains SCIM API accept OCI request signatures?
   - Does self-`DeleteApiKey` work?
@@ -142,6 +160,8 @@ What cannot be automated:
 - `@cloudflare/vitest-pool-workers` is deprecated and renamed to `@cloudflare/vitest-plugin`; the plugin is used via `cloudflareTest()` in `vitest.config.ts`.
 - `worker/.npmrc` sets `legacy-peer-deps=true`, because npm 10.9 crashes with `Cannot read properties of null (reading 'edgesOut')` while resolving this peer set. All peers are listed explicitly in `package.json`.
 - Dependency versions are pinned to releases at least two weeks old at install time.
+
+- Do not name a Durable Object RPC method `connect`. Stubs reserve it for the socket API (`Fetcher.connect`).
 
 ## Sources
 All sources are linked inline in **Platform facts** above.
