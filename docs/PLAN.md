@@ -3,7 +3,7 @@
 ## Status
 - **Updated:** 2026-10-09
 - **Done:** Step 1 (repo setup) and M1 (Worker skeleton and OCI request signer). See Milestones.
-- **M2–M5 status:** code done and tested offline. 76 tests pass; `tsc` is clean; the page passes headless smoke tests at phone size. Live runs are still pending: M2/M3 need the env vars or a deploy, and M4/M5 need an **empty** tenancy because they create resources.
+- **M2–M7 status:** code done and tested offline. 94 tests pass; `tsc` is clean; the page passes headless smoke tests at phone size; the rendered boot scripts pass `bash -n` and shellcheck. Live runs are still pending: M2/M3 need the env vars or a deploy; M4–M7 need an **empty** tenancy and a real VM.
 - **Next action:**
   1. When the `OCI_TEST_*` env vars exist, `npm test` also runs `test/live.test.ts`. It has a GET-only guard and covers:
      - the home region and ADs;
@@ -11,7 +11,7 @@
 
      Check the logged limit values. They show how the Limits API reports the Always Free A1, micro and storage limits (AD-scoped or regional); adjust `planLayout`'s `Allowance` source if needed. For the reference tenancy, the plan should report "nothing to create".
   2. Deploy (maintainer action; see Open items). Run the onboarding page against the reference tenancy with an app-generated second API key. That closes M2.
-  3. M6: cloud-init components with control sheets, keep-alive first.
+  3. First real VM (needs an empty tenancy). Verify each control-sheet command, the keep-alive P95, and Tailscale exit-node forwarding.
 - **Live tests:** these need environment variables in the cloud environment settings (values are never committed):
   - `OCI_TEST_KEY_B64` (base64 of a PKCS#8 PEM)
   - `OCI_TEST_USER`
@@ -174,12 +174,23 @@ What cannot be automated:
       - `GET /api/accounts/:id/deployment`
       - `POST /api/accounts/:id/cancel`
     - The page has an SSH key form and a progress view that polls every 15 s.
-- [ ] **M6:** cloud-init components with control sheets, keep-alive first.
+- [ ] **M6:** cloud-init components with control sheets, keep-alive first. *Code done; real-VM verification pending.*
   - *Done when* every control-sheet command has been verified on a real VM, including uninstall.
-- [ ] **M7:** Handoff screen: IP address, Termius connection fields, control sheets.
+  - Built so far: `src/vm/components.ts`. One definition produces both the first-boot bash script and the per-component control sheets.
+  - **Keep-alive:** a systemd timer plus a oneshot service running `stress-ng --cpu 0 --cpu-load LOAD` under `timeout`. Settings live in `/etc/easycloud/keepalive.env`. There is deliberately no `Nice=`, because nice time may not count toward OCI's `CpuUtilization`.
+  - **Docker:** the `docker.io` package.
+  - **cloudflared:** Cloudflare's apt repo, then `service install <token>`.
+  - **Tailscale:** the official `install.sh`, then `up --auth-key --hostname`. Exit node optional: sysctl forwarding plus `--advertise-exit-node`.
+  - **Isolation:** each component runs in its own function. Its result goes to `/etc/easycloud/status`, and the log is `/var/log/easycloud-setup.log`.
+  - **Packages:** `/etc/easycloud/installed-packages` lists what the app installed. Uninstall commands check that list first, so they never remove packages that were already there.
+  - **Control sheet on the VM:** written to `/etc/easycloud/control-sheet.txt` and `~ubuntu/EASYCLOUD.txt`.
+  - **Secrets:** tokens and keys are validated by strict format, then single-quoted. They exist only inside the boot script, which is stored sealed per server (AES-GCM, associated data `accountId:serverName`). The stored selection and the sheets are secret-free.
+  - **Inspecting the script:** `node worker/scripts/render-cloud-init.mjs [a1|micro] [all|default]` prints the script and runs `bash -n` on it.
+- [ ] **M7:** Handoff screen: IP address, Termius connection fields, control sheets. *Code done (`GET /api/accounts/:id/control-sheet` plus the page's "Your servers" view with copy buttons); real-VM check pending.*
 - [ ] **M8:** Hardening. Replace the account-wide key with a scoped bot user, delete the admin key, add revoke.
 
 ## Open items
+- **Secrets in instance metadata:** the tunnel token and Tailscale auth key travel in `user_data`. Anyone with instance-read access in the tenancy can read them, and so can any process on the VM via the metadata service. Suggest one-off Tailscale auth keys. A later improvement could wipe or rotate them after first boot.
 - **M5 options (not built):**
   - `CreateComputeCapacityReport` checks capacity before launching; Oracle's Known Issues page points to it.
   - An opt-in A1 fallback to 1 OCPU / 6 GB when 2/12 has no capacity.

@@ -9,6 +9,7 @@ import { OciError, type OciClient } from "./oci/client";
 import { ensureNetwork } from "./oci/network";
 import { ociEndpoint, ociUrl } from "./oci/url";
 import type { LayoutPlan, NetworkPlan, PlannedInstance } from "./plan";
+import type { ComponentSelection } from "./vm/components";
 
 export const TAGS = { easycloud: "managed" };
 const LOG_LIMIT = 50;
@@ -52,7 +53,10 @@ export interface Deployment {
   region: string;
   compartmentId: string;
   sshPublicKey: string;
-  userData?: string;
+  /** Selected VM components without secrets (tokens/keys live only in sealedUserData). */
+  components: ComponentSelection;
+  /** Per server name: envelope-sealed base64 cloud-init script (contains secrets). */
+  sealedUserData?: Record<string, string>;
   network: NetworkPlan;
   subnetId?: string;
   servers: ServerItem[];
@@ -63,6 +67,8 @@ export interface Deployment {
 
 export interface AdvanceDeps {
   client: OciClient;
+  /** Per server name: base64 cloud-init script, decrypted by the caller. */
+  userData?: Record<string, string>;
   now: () => Date;
   retrySeed: string;
   sleep?: (ms: number) => Promise<void>;
@@ -74,13 +80,26 @@ export function validSshPublicKey(key: string): boolean {
   return SSH_KEY.test(key.trim());
 }
 
+/** Server names newDeployment assigns, in plan order (a1 first, then micros). */
+export function serverNames(plan: LayoutPlan): { name: string; role: PlannedInstance["role"] }[] {
+  let micro = 0;
+  return plan.create.map((c) => ({ name: c.role === "a1" ? "easycloud-a1" : `easycloud-micro-${++micro}`, role: c.role }));
+}
+
 export function newDeployment(
   plan: LayoutPlan,
-  opts: { region: string; compartmentId: string; sshPublicKey: string; userData?: string; now: Date },
+  opts: {
+    region: string;
+    compartmentId: string;
+    sshPublicKey: string;
+    components: ComponentSelection;
+    sealedUserData?: Record<string, string>;
+    now: Date;
+  },
 ): Deployment {
-  let micro = 0;
-  const servers = plan.create.map<ServerItem>((c) => ({
-    name: c.role === "a1" ? "easycloud-a1" : `easycloud-micro-${++micro}`,
+  const names = serverNames(plan);
+  const servers = plan.create.map<ServerItem>((c, i) => ({
+    name: names[i]!.name,
     role: c.role,
     shape: c.shape,
     ocpus: c.ocpus,
@@ -100,7 +119,8 @@ export function newDeployment(
     region: opts.region,
     compartmentId: opts.compartmentId,
     sshPublicKey: opts.sshPublicKey.trim(),
-    userData: opts.userData,
+    components: opts.components,
+    sealedUserData: opts.sealedUserData,
     network: plan.network,
     subnetId: plan.network.action === "reuse" ? plan.network.subnetId : undefined,
     servers,
@@ -235,7 +255,7 @@ async function stepServer(d: Deployment, s: ServerItem, deps: AdvanceDeps, now: 
           ...(s.ocpus ? { shapeConfig: { ocpus: s.ocpus, memoryInGBs: s.memoryInGBs } } : {}),
           sourceDetails: { sourceType: "image", imageId: s.imageId, bootVolumeSizeInGBs: s.bootVolumeGB },
           createVnicDetails: { subnetId: d.subnetId, assignPublicIp: true },
-          metadata: { ssh_authorized_keys: d.sshPublicKey, ...(d.userData ? { user_data: d.userData } : {}) },
+          metadata: { ssh_authorized_keys: d.sshPublicKey, ...(deps.userData?.[s.name] ? { user_data: deps.userData[s.name] } : {}) },
           freeformTags: TAGS,
         },
         { "opc-retry-token": `${deps.retrySeed}-${s.name}-${s.attempts}`.slice(0, 64) },

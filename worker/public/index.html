@@ -25,6 +25,14 @@
   .ok { color:var(--ok); font-weight:600; } .bad { color:var(--bad); }
   ul.plain { list-style:none; padding:0; margin:.25rem 0 .75rem; } ul.plain li { padding:.35rem 0; border-bottom:1px solid var(--line); }
   h3 { font-size:.95rem; margin:.75rem 0 .25rem; }
+  label.opt { display:flex; gap:.6rem; align-items:flex-start; margin:.5rem 0; }
+  label.opt input { margin-top:.3rem; width:1.15rem; height:1.15rem; flex:none; }
+  .sub { margin:0 0 .5rem 1.75rem; }
+  input:not([type]) , input[type=text] { width:100%; font:12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:10px; padding:.6rem; }
+  .cmd { display:flex; gap:.5rem; align-items:stretch; margin:.25rem 0 .6rem; }
+  .cmd code { flex:1; font:11.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:.5rem; word-break:break-all; }
+  .cmd button { width:auto; margin:0; padding:.4rem .7rem; min-height:auto; font-size:.85rem; }
+  details { border-top:1px solid var(--line); padding:.4rem 0; } summary { cursor:pointer; font-weight:600; padding:.3rem 0; }
   [hidden] { display:none !important; }
 </style>
 </head>
@@ -77,6 +85,21 @@
       <h3>Your SSH key</h3>
       <p class="note">In Termius, open <b>Keychain</b>, create an <b>ED25519</b> key, and copy its <b>public</b> key (it starts with <code>ssh-ed25519</code>). Only the public key goes here.</p>
       <textarea id="ssh-key" placeholder="ssh-ed25519 AAAA…" autocapitalize="off" autocorrect="off" spellcheck="false" style="min-height:5rem"></textarea>
+      <h3>Extras</h3>
+      <label class="opt"><input type="checkbox" id="c-keepalive" checked> <span><b>Keep-alive</b> (recommended) — light scheduled CPU load so Oracle doesn't reclaim the server as idle.</span></label>
+      <label class="opt"><input type="checkbox" id="c-docker"> <span><b>Docker</b> — run apps in containers.</span></label>
+      <label class="opt"><input type="checkbox" id="c-cloudflared"> <span><b>Cloudflare Tunnel</b> — reach apps on the server through your Cloudflare domain.</span></label>
+      <div id="cloudflared-fields" class="sub" hidden>
+        <p class="note">In Cloudflare: Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared. Copy the long token from the install command.</p>
+        <textarea id="cf-token" placeholder="eyJhIjoi…" autocapitalize="off" autocorrect="off" spellcheck="false" style="min-height:4rem"></textarea>
+      </div>
+      <label class="opt"><input type="checkbox" id="c-tailscale"> <span><b>Tailscale</b> — private VPN between your devices and the server.</span></label>
+      <div id="tailscale-fields" class="sub" hidden>
+        <p class="note">In Tailscale: Settings → Keys → Generate auth key. Paste it here.</p>
+        <input id="ts-key" placeholder="tskey-auth-…" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <label class="opt"><input type="checkbox" id="ts-exit"> <span>Use as an <b>exit node</b> (browse through the server's internet connection / change your IP).</span></label>
+      </div>
+      <p class="note">Every extra comes with copy-paste commands to check, pause, change or remove it — no app needed.</p>
       <button id="deploy">Set up my servers</button>
       <div id="deploy-error" class="bad" hidden></div>
     </div>
@@ -90,6 +113,12 @@
     <h3>Activity</h3>
     <ul class="plain note" id="progress-log"></ul>
     <button id="cancel" class="secondary">Stop setting up</button>
+  </section>
+
+  <section id="step-handoff" hidden>
+    <h2>Your servers</h2>
+    <p class="note">Everything below is also saved on each server: run <code>cat ~/EASYCLOUD.txt</code>. You don't need EasyCloud to manage them.</p>
+    <div id="handoff"></div>
   </section>
 </main>
 <script>
@@ -198,6 +227,7 @@
       ? `Next check: ${new Date(d.nextAttemptAt).toLocaleTimeString()}. You can close this page — setup continues.` : "";
     $("progress-log").innerHTML = d.log.slice(-6).reverse().map((l) => `<li>${esc(new Date(l.at).toLocaleString())}: ${esc(l.message)}</li>`).join("");
     show("cancel", d.status === "network" || d.status === "servers");
+    if (d.servers.some((s) => s.state === "running")) renderHandoff();
     clearTimeout(pollTimer);
     if (d.status === "network" || d.status === "servers") pollTimer = setTimeout(refreshProgress, 15000);
   }
@@ -207,11 +237,45 @@
     if (res.ok) renderProgress(body);
   }
 
+  for (const [box, fields] of [["c-cloudflared", "cloudflared-fields"], ["c-tailscale", "tailscale-fields"]]) {
+    $(box).addEventListener("change", () => show(fields, $(box).checked));
+  }
+
+  function components() {
+    return {
+      keepalive: { enabled: $("c-keepalive").checked },
+      docker: { enabled: $("c-docker").checked },
+      cloudflared: { enabled: $("c-cloudflared").checked, tunnelToken: $("cf-token").value.trim() || undefined },
+      tailscale: { enabled: $("c-tailscale").checked, authKey: $("ts-key").value.trim() || undefined, exitNode: $("ts-exit").checked },
+    };
+  }
+
+  async function renderHandoff() {
+    const { res, body } = await api(`/api/accounts/${accountId()}/control-sheet`);
+    if (!res.ok) return;
+    $("handoff").innerHTML = body.filter((srv) => srv.publicIp).map((srv) => {
+      const label = srv.role === "a1" ? "Ampere server" : "Small AMD server";
+      const connect = `<p>Connect in Termius — Host <b>${esc(srv.publicIp)}</b>, Port <b>22</b>, Username <b>ubuntu</b>, Key: the one you made.</p>`;
+      const sections = srv.sections.map((sec) => `<details><summary>${esc(sec.title)}</summary><p class="note">${esc(sec.description)}</p>${
+        sec.actions.map((a) => `<div>${esc(a.label)}</div><div class="cmd"><code>${esc(a.command)}</code><button class="secondary copy" data-cmd="${esc(a.command)}">Copy</button></div>`).join("")
+      }</details>`).join("");
+      return `<h3>${esc(label)} (${esc(srv.server)})</h3>${connect}${sections || '<p class="note">No extras installed.</p>'}`;
+    }).join("");
+    show("step-handoff", $("handoff").innerHTML.trim() !== "");
+  }
+
+  $("handoff").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button.copy");
+    if (!btn) return;
+    try { await navigator.clipboard.writeText(btn.dataset.cmd); btn.textContent = "Copied"; } catch { btn.textContent = "Select & copy"; }
+    setTimeout(() => { btn.textContent = "Copy"; }, 2000);
+  });
+
   $("deploy").addEventListener("click", async () => {
     const err = $("deploy-error"); err.hidden = true;
     $("deploy").disabled = true; $("deploy").textContent = "Starting…";
     try {
-      const { body } = await api(`/api/accounts/${accountId()}/deploy`, { method: "POST", body: JSON.stringify({ sshPublicKey: $("ssh-key").value }) });
+      const { body } = await api(`/api/accounts/${accountId()}/deploy`, { method: "POST", body: JSON.stringify({ sshPublicKey: $("ssh-key").value, components: components() }) });
       if (body.ok) { show("step-plan", false); renderProgress(body.deployment); return; }
       const e = body.error || {};
       err.textContent = (e.message || "Couldn't start.") + (e.details ? " " + e.details.join(" ") : "");
