@@ -102,6 +102,36 @@ describe("planLayout", () => {
     expect(plan.create.find((c) => c.role === "micro")?.candidateAds).toEqual(ADS);
   });
 
+  it("falls back to the 47 GB image default when the A1 remainder would be an invalid custom size", () => {
+    // 96 GB free, one micro wanted: 96 - 47 = 49 GB is below OCI's 50 GB custom minimum.
+    const plan = planLayout(discovery({ storageUsedGB: 104 }), undefined, { a1: true, micros: 1 });
+    expect(plan.create.map((c) => [c.role, c.bootVolumeGB])).toEqual([["a1", 47], ["micro", 47]]);
+  });
+
+  it("prefers a regional subnet over an AD-specific one", () => {
+    const adOnly = { vcnId: "vcn-ad", displayName: "ad", compartmentId: "t", publicSubnets: [{ id: "sub-ad", cidrBlock: "10.1.0.0/24", availabilityDomain: ADS[0]! }] };
+    const plan = planLayout(discovery({ networks: [adOnly, PUBLIC_NET], vcnCount: 2 }));
+    expect(plan.network).toEqual({ action: "reuse", vcnId: "vcn-1", subnetId: "sub-1", displayName: "main" });
+    expect(plan.create.find((c) => c.role === "a1")!.candidateAds).toEqual(ADS);
+  });
+
+  it("reuses an AD-specific subnet only when every server can launch there, and pins them to that AD", () => {
+    const microLimits = ADS.map((ad, i) => ({ name: "standard-e2-micro-core-count", scopeType: "AD", availabilityDomain: ad, value: i === 1 ? 2 : 0 }));
+    const inAd2 = { vcnId: "vcn-ad2", displayName: "ad2", compartmentId: "t", publicSubnets: [{ id: "sub-ad2", cidrBlock: "10.2.0.0/24", availabilityDomain: ADS[1]! }] };
+    const plan = planLayout(discovery({ networks: [inAd2], vcnCount: 1, limits: microLimits }));
+    expect(plan.network).toEqual({ action: "reuse", vcnId: "vcn-ad2", subnetId: "sub-ad2", displayName: "ad2" });
+    expect(plan.create.map((c) => c.candidateAds)).toEqual([[ADS[1]], [ADS[1]], [ADS[1]]]);
+  });
+
+  it("does not reuse an AD-specific subnet the micros cannot use: creates a network, or blocks at the VCN limit", () => {
+    const microLimits = ADS.map((ad, i) => ({ name: "standard-e2-micro-core-count", scopeType: "AD", availabilityDomain: ad, value: i === 1 ? 2 : 0 }));
+    const inAd1 = { vcnId: "vcn-ad1", displayName: "ad1", compartmentId: "t", publicSubnets: [{ id: "sub-ad1", cidrBlock: "10.3.0.0/24", availabilityDomain: ADS[0]! }] };
+    expect(planLayout(discovery({ networks: [inAd1], vcnCount: 1, limits: microLimits })).network).toEqual({ action: "create" });
+    const blocked = planLayout(discovery({ networks: [inAd1, { ...inAd1, vcnId: "vcn-x", publicSubnets: [] }], vcnCount: 2, limits: microLimits }));
+    expect(blocked.network.action).toBe("blocked");
+    expect(blocked.blockers[0]).toMatch(/different availability domain/);
+  });
+
   it("respects a request for fewer servers", () => {
     const plan = planLayout(discovery(), undefined, { a1: true, micros: 0 });
     expect(plan.create.map((c) => [c.role, c.bootVolumeGB])).toEqual([["a1", 200]]);

@@ -81,6 +81,11 @@ export class Account extends DurableObject<Env> {
       const script = encodeUserData(buildUserData(role, name, components));
       sealedUserData[name] = await seal(dataKey, new TextEncoder().encode(script), `${accountId}:${name}`);
     }
+    // planAccount awaited Oracle, so another request may have started a deployment meanwhile.
+    const again = await this.ctx.storage.get<Deployment>(DEPLOYMENT);
+    if (again && (again.status === "network" || again.status === "servers")) {
+      return { ok: false, error: { kind: "already-running", message: "Setup is already running." } };
+    }
     const deployment = newDeployment(planned.plan, {
       region: record!.homeRegion!,
       compartmentId: record!.tenancy!,
@@ -143,6 +148,10 @@ export class Account extends DurableObject<Env> {
       d.log.push({ at: new Date().toISOString(), message: `Temporary problem (${err instanceof Error ? err.message : String(err)}); retrying.` });
       if (d.log.length > 50) d.log.splice(0, d.log.length - 50);
     }
+    // advance() awaited Oracle, which lets other requests interleave: a cancel or a new deployment
+    // written meanwhile must win over this (now stale) snapshot. Storage-only get+put cannot interleave.
+    const current = await this.ctx.storage.get<Deployment>(DEPLOYMENT);
+    if (!current || current.runId !== d.runId || current.status === "cancelled") return;
     await this.ctx.storage.put(DEPLOYMENT, d);
     if (next !== null) await this.ctx.storage.setAlarm(Date.now() + next);
   }

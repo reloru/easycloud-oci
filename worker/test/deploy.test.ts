@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advance, classify, newDeployment, PACING, validSshPublicKey, type Deployment } from "../src/deploy";
+import { advance, classify, newDeployment, PACING, RUN_TAG, serverNames, validSshPublicKey, type Deployment } from "../src/deploy";
 import { OciError } from "../src/oci/client";
 import { SHAPES } from "../src/oci/discovery";
 import type { LayoutPlan } from "../src/plan";
@@ -131,15 +131,118 @@ describe("deployment", () => {
     expect(d.servers[0]!.message).toMatch(/no free allowance/);
   });
 
-  it("adopts an instance from a lost launch response instead of launching twice", async () => {
+  it("adopts an instance from this run's lost launch response instead of launching twice", async () => {
     const fake = new FakeOci();
     fake.capacity = new Set(ADS);
-    fake.instances.set("i-existing", { id: "i-existing", compartmentId: C, displayName: "easycloud-a1", availabilityDomain: "AD-3", lifecycleState: "PROVISIONING" });
     const d = fresh(plan({ action: "reuse", vcnId: "v", subnetId: "s", displayName: "n" }));
     d.servers = d.servers.slice(0, 1);
+    fake.instances.set("i-existing", {
+      id: "i-existing", compartmentId: C, displayName: "easycloud-a1", availabilityDomain: "AD-3", lifecycleState: "PROVISIONING",
+      freeformTags: { easycloud: "managed", [RUN_TAG]: d.runId },
+    });
     await run(fake, d);
     expect(fake.launches).toEqual([]);
     expect(d.servers[0]).toMatchObject({ instanceId: "i-existing", availabilityDomain: "AD-3", state: "running" });
+  });
+
+  it("never adopts a same-named instance from another run (or created by hand)", async () => {
+    const fake = new FakeOci();
+    fake.capacity = new Set(ADS);
+    const d = fresh(plan({ action: "reuse", vcnId: "v", subnetId: "s", displayName: "n" }));
+    d.servers = d.servers.slice(0, 1);
+    fake.instances.set("i-old", {
+      id: "i-old", compartmentId: C, displayName: "easycloud-a1", availabilityDomain: "AD-3", lifecycleState: "RUNNING",
+      freeformTags: { easycloud: "managed", [RUN_TAG]: "some-earlier-run" },
+    });
+    await run(fake, d);
+    expect(fake.launches).toHaveLength(1);
+    expect(fake.launches[0]!.body.freeformTags).toEqual({ easycloud: "managed", [RUN_TAG]: d.runId });
+    expect(d.servers[0]!.instanceId).not.toBe("i-old");
+  });
+
+  it("sends a custom boot size only above the 47 GB image default", async () => {
+    const fake = new FakeOci();
+    fake.capacity = new Set(ADS);
+    const d = fresh(plan({ action: "reuse", vcnId: "v", subnetId: "s", displayName: "n" }));
+    await run(fake, d);
+    expect(fake.launches.map((l) => l.body.sourceDetails)).toEqual([
+      { sourceType: "image", imageId: "img-a1", bootVolumeSizeInGBs: 106 },
+      { sourceType: "image", imageId: "img-m" },
+      { sourceType: "image", imageId: "img-m" },
+    ]);
+  });
+
+  it("fails a server Oracle reports as STOPPED instead of polling forever", async () => {
+    const fake = new FakeOci();
+    fake.capacity = new Set(ADS);
+    fake.provisioningPolls = 1000;
+    const d = fresh(plan({ action: "reuse", vcnId: "v", subnetId: "s", displayName: "n" }));
+    d.servers = d.servers.slice(0, 1);
+    let t = Date.UTC(2026, 9, 9);
+    const deps = { client: await fakeClient(fake), now: () => new Date(t), retrySeed: "acct" };
+    t += (await advance(d, deps)).nextDelayMs!;
+    fake.instances.get(d.servers[0]!.instanceId!)!.lifecycleState = "STOPPED";
+    expect((await advance(d, deps)).nextDelayMs).toBeNull();
+    expect(d.servers[0]).toMatchObject({ state: "failed" });
+    expect(d.servers[0]!.message).toMatch(/stopped/);
+  });
+
+  it("gives up on an instance that never reaches RUNNING", async () => {
+    const fake = new FakeOci();
+    fake.capacity = new Set(ADS);
+    fake.provisioningPolls = 1_000_000;
+    const d = fresh(plan({ action: "reuse", vcnId: "v", subnetId: "s", displayName: "n" }));
+    d.servers = d.servers.slice(0, 1);
+    const { steps } = await run(fake, d, 500);
+    expect(d.status).toBe("failed");
+    expect(d.servers[0]!.message).toMatch(/didn't finish starting this server within 30 minutes/);
+    expect(steps).toBeLessThan(200);
+  });
+
+  it("waits for the public IP before marking a server running", async () => {
+    const fake = new FakeOci();
+    fake.capacity = new Set(ADS);
+    const d = fresh(plan({ action: "reuse", vcnId: "v", subnetId: "s", displayName: "n" }));
+    d.servers = d.servers.slice(0, 1);
+    let t = Date.UTC(2026, 9, 9);
+    const deps = { client: await fakeClient(fake), now: () => new Date(t), retrySeed: "acct" };
+    t += (await advance(d, deps)).nextDelayMs!; // launched
+    const att = () => [...fake.vnicAttachments.values()];
+    const realList = fake.handle;
+    let hideIp = 3;
+    fake.handle = async (req) => {
+      if (hideIp > 0 && new URL(req.url).pathname.endsWith("/vnicAttachments")) {
+        hideIp--;
+        return Response.json(att().map((a) => ({ ...a, lifecycleState: "ATTACHING" })));
+      }
+      return realList(req);
+    };
+    const c2 = { ...deps, client: await fakeClient(fake) };
+    for (let i = 0; i < 3; i++) t += (await advance(d, c2)).nextDelayMs!;
+    expect(d.servers[0]).toMatchObject({ state: "provisioning", ipPollCount: 3 });
+    await advance(d, c2);
+    expect(d.servers[0]!.state).toBe("running");
+    expect(d.servers[0]!.publicIp).toMatch(/^203\.0\.113\./);
+  });
+
+  it("paces capacity retries per server even while other servers poll faster", async () => {
+    const fake = new FakeOci();
+    fake.capacity = new Set(["AD-2"]); // micros launch in AD-2; the A1 rotates and is retried
+    fake.provisioningPolls = 10; // micros take ~10 polls (15 s each) to boot
+    const d = fresh(plan({ action: "reuse", vcnId: "v", subnetId: "s", displayName: "n" }));
+    d.servers[0]!.candidateAds = ["AD-1", "AD-3"]; // A1 never gets capacity in this test
+    let t = Date.UTC(2026, 9, 9);
+    const deps = { client: await fakeClient(fake), now: () => new Date(t), retrySeed: "acct" };
+    const a1Launches: number[] = [];
+    for (let i = 0; i < 40; i++) {
+      const before = fake.launches.filter((l) => l.body.displayName === "easycloud-a1").length;
+      const { nextDelayMs } = await advance(d, deps);
+      if (fake.launches.filter((l) => l.body.displayName === "easycloud-a1").length > before) a1Launches.push(t);
+      t += nextDelayMs!;
+    }
+    const gaps = a1Launches.slice(1).map((x, i) => x - a1Launches[i]!);
+    expect(gaps.length).toBeGreaterThan(3);
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(PACING.capacityMs);
   });
 
   it("relaunches when Oracle terminates an accepted launch", async () => {
@@ -148,8 +251,9 @@ describe("deployment", () => {
     fake.provisioningPolls = 2;
     const d = fresh(plan({ action: "reuse", vcnId: "v", subnetId: "s", displayName: "n" }));
     d.servers = d.servers.slice(0, 1);
-    const deps = { client: await fakeClient(fake), now: () => new Date(), retrySeed: "acct" };
-    await advance(d, deps); // launch accepted in AD-1
+    let t = Date.UTC(2026, 9, 9);
+    const deps = { client: await fakeClient(fake), now: () => new Date(t), retrySeed: "acct" };
+    t += (await advance(d, deps)).nextDelayMs!; // launch accepted in AD-1
     fake.instances.get(d.servers[0]!.instanceId!)!.lifecycleState = "TERMINATED";
     await advance(d, deps); // sees TERMINATED
     expect(d.servers[0]).toMatchObject({ state: "waiting-capacity", instanceId: undefined, adIndex: 1 });
@@ -164,6 +268,17 @@ describe("deployment", () => {
     await run(failing, d);
     expect(d.status).toBe("failed");
     expect(d.log.at(-1)!.message).toMatch(/Network setup failed/);
+  });
+});
+
+describe("serverNames", () => {
+  it("skips names already used by live instances", () => {
+    const p = plan();
+    p.existing = {
+      a1: [{ id: "x", displayName: "easycloud-a1", shape: SHAPES.a1, ocpus: 1, memoryInGBs: 6, lifecycleState: "RUNNING", availabilityDomain: "AD-1" }],
+      micros: [{ id: "y", displayName: "easycloud-micro-1", shape: SHAPES.micro, ocpus: 1, memoryInGBs: 1, lifecycleState: "RUNNING", availabilityDomain: "AD-2" }],
+    };
+    expect(serverNames(p).map((n) => n.name)).toEqual(["easycloud-a1-2", "easycloud-micro-2", "easycloud-micro-3"]);
   });
 });
 

@@ -3,7 +3,7 @@
 ## Status
 - **Updated:** 2026-10-09
 - **Done:** Step 1 (repo setup) and M1 (Worker skeleton and OCI request signer). See Milestones.
-- **M2–M7 status:** code done and tested offline. 94 tests pass; `tsc` is clean; the page passes headless smoke tests at phone size; the rendered boot scripts pass `bash -n` and shellcheck. Live runs are still pending: M2/M3 need the env vars or a deploy; M4–M7 need an **empty** tenancy and a real VM.
+- **M2–M7 status:** code done and tested offline. 108 tests pass; `tsc` is clean; the page passes headless smoke tests at phone size; the rendered boot scripts pass `bash -n` and shellcheck. Live runs are still pending: M2/M3 need the env vars or a deploy; M4–M7 need an **empty** tenancy and a real VM.
 - **Next action:**
   1. When the `OCI_TEST_*` env vars exist, `npm test` also runs `test/live.test.ts`. It has a GET-only guard and covers:
      - the home region and ADs;
@@ -75,6 +75,8 @@ What cannot be automated:
 | Request signing: RSA-SHA256 (draft-cavage). `keyId` = `tenancyOCID/userOCID/fingerprint`. GET/DELETE sign `(request-target) host date`. POST/PUT also sign `x-content-sha256`, `content-type`, `content-length`. Clock skew limit 5 min. The page's example `Authorization` headers use a placeholder signature. | [Request Signatures](https://docs.oracle.com/en-us/iaas/Content/API/Concepts/signingrequests.htm) |
 | API key: RSA, PEM, minimum 2048 bits. The Console's "Add API key" dialog has a paste-public-key option. Its config preview gives `user`, `fingerprint`, `tenancy` and `region`, where `region` is the **currently selected Console region, not necessarily the home region**. | [Required Keys and OCIDs](https://docs.oracle.com/en-us/iaas/Content/API/Concepts/apisigningkey.htm) |
 | Home region is discoverable via `ListRegionSubscriptions`: pick the entry with `isHomeRegion == true`. | [CLI region-subscription list](https://docs.oracle.com/en-us/iaas/tools/oci-cli/latest/oci_cli_docs/cmdref/iam/region-subscription/list.html), [RegionSubscription model](https://docs.oracle.com/en-us/iaas/tools/python/latest/api/identity/models/oci.identity.models.RegionSubscription.html) |
+| Boot volume: the image default for these images is 47 GB, and the Always Free docs only mention 47 as the default. A **custom** `bootVolumeSizeInGBs` must be ≥ 50 GB (SDK `InstanceSourceViaImageDetails` docstring; Block Volume "Custom Boot Volume Sizes"). So 47 GB is reached by omitting the size. *Whether the API also accepts an explicit 47 is unverified.* | [Boot volumes](https://docs.oracle.com/en-us/iaas/Content/Block/Concepts/bootvolumes.htm) |
+| A VCN can have only one internet gateway (disable or enable it via update). | [Internet gateway](https://docs.oracle.com/en-us/iaas/Content/Network/Tasks/managingIGs.htm) |
 | `metadata` + `extendedMetadata` ≤ 32,000 bytes. `user_data` and `ssh_authorized_keys` cannot be changed after launch. | [CLI launch reference](https://docs.cloud.oracle.com/iaas/tools/oci-cli/latest/oci_cli_docs/cmdref/compute/instance/launch.html) |
 | Ubuntu images: iptables REJECTs all inbound traffic except port 22. Don't use UFW. | [Oracle dev blog](https://blogs.oracle.com/developers/enabling-network-traffic-to-ubuntu-images-in-oracle-cloud-infrastructure), [Compute best practices](https://docs.oracle.com/en-us/iaas/Content/Compute/References/bestpracticescompute.htm) |
 | Console MFA is on by default for new tenancies. It applies to Console sign-in only; API-key calls are unaffected. | [Security Policy for OCI Console](https://docs.oracle.com/en-us/iaas/Content/Security/Reference/iam_security_topic-iam_mfa_identity_domains_signon_policy.htm) |
@@ -174,6 +176,15 @@ What cannot be automated:
       - `GET /api/accounts/:id/deployment`
       - `POST /api/accounts/:id/cancel`
     - The page has an SSH key form and a progress view that polls every 15 s.
+  - A second adversarial review (state machine; OCI API conformance) found 9 issues. All are fixed and each has a test:
+    - **Boot volume size:** micros now launch with no custom size (image default 47 GB); explicit sizes must be ≥ 50 GB. A 47–49 GB A1 remainder falls back to the default.
+    - **Alarm vs cancel/new deploy:** the alarm re-reads storage before writing and skips when the `runId` changed or the run was cancelled. A Durable Object race test covers this.
+    - **Adoption:** only instances carrying this run's `easycloud-run` tag are adopted. New server names skip names live instances already use.
+    - **Stuck polling:** STOPPED/STOPPING fails the server; provisioning times out after 30 min.
+    - **Pacing:** each server has its own next-attempt time, so capacity retries stay at 60 s regardless of other servers.
+    - **AD-specific subnets:** reused only when every planned server can launch in that AD, with candidates pinned to it. Otherwise create a network or report a blocker.
+    - **Public IP:** a server isn't marked running until its public IP appears (up to 20 polls), else it finishes with an explicit message.
+    - **Disabled IGW:** re-enabled instead of creating a second gateway.
 - [ ] **M6:** cloud-init components with control sheets, keep-alive first. *Code done; real-VM verification pending.*
   - *Done when* every control-sheet command has been verified on a real VM, including uninstall.
   - Built so far: `src/vm/components.ts`. One definition produces both the first-boot bash script and the per-component control sheets.
