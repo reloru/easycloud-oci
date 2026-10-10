@@ -88,6 +88,12 @@ export async function ensureNetwork(client: OciClient, opts: NetworkOptions): Pr
   const scope = { compartmentId: opts.compartmentId, vcnId: vcn.id };
   const gateways = (await client.listAll<Gateway>(url(["internetGateways"], scope))).filter(LIVE);
   let igw = gateways.find((g) => g.isEnabled !== false);
+  const disabled = gateways.find((g) => g.isEnabled === false);
+  if (!igw && disabled) {
+    // A VCN can have only one internet gateway: re-enable it instead of creating another.
+    igw = await client.request<Gateway>("PUT", url(["internetGateways", disabled.id]), { isEnabled: true });
+    changes.push("enabled internet gateway");
+  }
   if (!igw) {
     igw = await client.request<Gateway>(
       "POST",

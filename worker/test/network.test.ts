@@ -69,6 +69,20 @@ describe("ensureNetwork", () => {
     expect(tokens).toEqual(["easycloud-acct-vcn", "easycloud-acct-igw", "easycloud-acct-subnet"]);
   });
 
+  it("re-enables a disabled internet gateway instead of creating a second one", async () => {
+    const fake = new FakeOci(true);
+    const c = await client(fake);
+    await ensureNetwork(c, opts);
+    const igw = [...fake.igws.values()][0]!;
+    igw.isEnabled = false;
+    fake.calls = [];
+    const result = await ensureNetwork(c, { ...opts, retrySeed: "easycloud-acct-run2" });
+    expect(result.changes).toEqual(["enabled internet gateway"]);
+    expect(mutations(fake.calls)).toEqual(["PUT internetGateways/:id"]);
+    expect(fake.igws.size).toBe(1);
+    expect(igw.isEnabled).toBe(true);
+  });
+
   it("gives up when a resource never becomes AVAILABLE", async () => {
     const fake = new FakeOci();
     const stuck = async (req: Request) => {
