@@ -236,19 +236,20 @@ What cannot be automated:
 - **M6:** Decide tunnel ownership: the user's own Cloudflare account, or the maintainer's account and domain.
 - **M6:** Decide the implementation for pausable components (systemd timer vs cron). Control-sheet semantics drive the choice.
 - **M6 (Tailscale exit node):** OCI Ubuntu images also end the iptables `FORWARD` chain with a `REJECT` rule. Exit-node forwarding works only if Tailscale's own netfilter rules precede it. *Unverified; test on a real VM.* Also check Always Free outbound data-transfer allowance, which exit-node traffic consumes. *Unverified.*
-- **Empty tenancy (for M4–M7):** the pilot is the first friend's own new account, signed up with their own details and card. Oracle's agreement lets an account holder authorize other users.
+- **Empty tenancy (for M4–M7):** the pilot is the first friend's own new account, signed up with their own details and card. Oracle's Cloud Services Agreement lets the account holder authorize other users and keeps the holder responsible for them ([CSA](https://www.oracle.com/contracts/docs/cloud_csa_online_v062223_us_eng.pdf)). Give the maintainer his own IAM user rather than sharing the friend's login. No Oracle text covers this exact case.
   - During the 30-day trial, trial limits apply. The app still caps at the Always Free allowance (`ALWAYS_FREE` in `src/plan.ts`).
   - The 2-VCN path can be exercised only after day 30.
-  - Capacity retry gets exercised only if Oracle is short at the time.
+  - Capacity retry gets exercised only if Oracle is short at the time. Oracle offers no way to simulate it; offline, the fake OCI covers it.
   - Pick a home region with 3 ADs (Ashburn, Chicago, Phoenix, London, Frankfurt) so A1 retries have more ADs to try.
-  - Rejected alternatives:
+  - Decline any "special offer" at signup: some special trials are suspended at trial end instead of continuing as Always Free. An account idle for 30 days may be suspended. ([Free Tier FAQ](https://www.oracle.com/cloud/free/faq/))
+  - Rejected alternatives (all verified against Oracle docs, 2026-10-11):
     - A second account for the maintainer: prohibited (one per person).
-    - Compartments: quotas only restrict and limits are tenancy-wide. *Single-source; independent re-check pending.*
-    - Child tenancy: not available on Free Tier or Trial.
-    - Pay As You Go: irreversible, and the micro limit stays 2. *Single-source; independent re-check pending.*
-    - Back up, delete, test and restore the reference servers: supported, but takes them offline. *Single-source; independent re-check pending.*
+    - Compartments: quotas only restrict, and service limits are tenancy-wide ([quota syntax](https://docs.oracle.com/en-us/iaas/Content/Quotas/Concepts/quota_policy_syntax.htm), [API errors](https://docs.oracle.com/en-us/iaas/Content/API/References/apierrors.htm)).
+    - Child tenancy: not available on Free Tier or Trial ([child tenancy management](https://docs.oracle.com/en-us/iaas/Content/General/organization/child-tenancy-management.htm)).
+    - Pay As You Go: irreversible, and the default micro limit stays 2 ([service limits](https://docs.oracle.com/en-us/iaas/Content/General/Concepts/servicelimits.htm)). It also would not help as the code stands: the planner uses the fixed Always Free caps, so the full reference tenancy still plans nothing to create.
+    - Back up, delete, test and restore the reference servers: supported (5 free volume backups; boot volumes can be backed up while running and restored), but takes them offline ([boot volume backups](https://docs.oracle.com/en-us/iaas/Content/Block/Concepts/bootvolumebackups.htm)).
 - **Planner gap (low priority):** the A1 free allowance is shared with `BM.Standard.A1` and `CI.Standard.A1.Flex` container instances ([price list](https://www.oracle.com/cloud/price-list/)), but the planner counts only `VM.Standard.A1.Flex`. A friend's new tenancy has neither.
-- **M2 (community-sourced):** a just-added API key may return 401 for a short while ([terraform-provider-oci#2383](https://github.com/oracle/terraform-provider-oci/issues/2383)). Connect should say to wait a minute and retry. *Unverified.*
+- **M2: a just-added API key may not work right away.** A new key starts in `CREATING` and is usable only when `ACTIVE` ([ApiKey model](https://docs.oracle.com/en-us/iaas/tools/python/latest/api/identity/models/oci.identity.models.ApiKey.html)). IAM changes can take several minutes to reach the home region ([Managing Regions](https://docs.oracle.com/en-us/iaas/Content/Identity/regions/managingregions.htm)). Connect should treat a 401 right after the key is added as "wait a minute and retry", not as a wrong key.
 - **M6 (Tailscale toggle only):** Direct WireGuard connections may need inbound 41641/udp in both the security list and iptables, inserted above the REJECT rule. Without it, traffic is expected to fall back to relays. *Unverified. Check Tailscale's docs at M6.*
 
 ## Tooling notes
