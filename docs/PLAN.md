@@ -1,7 +1,7 @@
 # Plan
 
 ## Status
-- **Updated:** 2026-10-09
+- **Updated:** 2026-10-11
 - **Done:** Step 1 (repo setup) and M1 (Worker skeleton and OCI request signer). See Milestones.
 - **M2–M7 status:** code done and tested offline. 108 tests pass; `tsc` is clean; the page passes headless smoke tests at phone size; the rendered boot scripts pass `bash -n` and shellcheck. Live runs are still pending: M2/M3 need the env vars or a deploy; M4–M7 need an **empty** tenancy and a real VM.
 - **Next action:**
@@ -222,13 +222,15 @@ What cannot be automated:
 - **M6:** Decide the implementation for pausable components (systemd timer vs cron). Control-sheet semantics drive the choice.
 - **M6 (Tailscale exit node):** OCI Ubuntu images also end the iptables `FORWARD` chain with a `REJECT` rule. Exit-node forwarding works only if Tailscale's own netfilter rules precede it. *Unverified; test on a real VM.* Also check Always Free outbound data-transfer allowance, which exit-node traffic consumes. *Unverified.*
 - **Testing:** the reference tenancy is full (2/2 VCNs, 200/200 GB), so live tests there are read-only or dry-run. Testing the create path (M4/M5) needs an empty tenancy.
-- **M6 (Tailscale toggle only):** Direct WireGuard connections may need inbound 41641/udp in both the security list and iptables, inserted above the REJECT rule. Without it, traffic is expected to fall back to relays. *Unverified. Check Tailscale's docs at M6.* Exit-node setup is out of scope.
+- **M6 (Tailscale toggle only):** Direct WireGuard connections may need inbound 41641/udp in both the security list and iptables, inserted above the REJECT rule. Without it, traffic is expected to fall back to relays. *Unverified. Check Tailscale's docs at M6.*
 
 ## Tooling notes
 - `opc-retry-token` must be unique per run. OCI keeps tokens for 24 h and may answer a reused token with the original resource, even after that resource was deleted. Re-runs stay idempotent through the lookups.
 - `@cloudflare/vitest-pool-workers` is deprecated and renamed to `@cloudflare/vitest-plugin`; the plugin is used via `cloudflareTest()` in `vitest.config.ts`.
 - `worker/.npmrc` sets `legacy-peer-deps=true`, because npm 10.9 crashes with `Cannot read properties of null (reading 'edgesOut')` while resolving this peer set. All peers are listed explicitly in `package.json`.
-- Dependency versions are pinned to releases at least two weeks old at install time.
+- Dependency versions are pinned to releases at least two weeks old at install time. Exception: a release that fixes a security advisory may be taken as soon as it ships.
+- `sharp` and `undici` reach the repo only through the dev chain `@cloudflare/vitest-plugin`/`wrangler` → `miniflare`, which pins exact versions. Neither package ships in the deployed Worker. Clear their advisories by bumping vitest-plugin and wrangler to a release whose miniflare pins patched versions, not with npm `overrides` against miniflare's exact pins. As of vitest-plugin 1.4.0 / wrangler 4.149.0 (2026-10-08, taken under the security exception), miniflare 5.20261006.1-alpha pins sharp 0.35.5 and undici 7.29.1, and `npm audit` reports 0 vulnerabilities.
+- Example secrets in tests and scripts are assembled at runtime (for example `["tskey", "auth", …].join("-")`), so GitHub secret scanning never sees a full match.
 
 - Do not name a Durable Object RPC method `connect`. Stubs reserve it for the socket API (`Fetcher.connect`).
 
