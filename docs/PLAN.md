@@ -3,16 +3,20 @@
 ## Status
 - **Updated:** 2026-10-11
 - **Done:** Step 1 (repo setup) and M1 (Worker skeleton and OCI request signer). See Milestones.
-- **M2–M7 status:** code done and tested offline. 108 tests pass; `tsc` is clean; the page passes headless smoke tests at phone size; the rendered boot scripts pass `bash -n` and shellcheck. Live runs are still pending: M2/M3 need the env vars or a deploy; M4–M7 need an **empty** tenancy and a real VM.
+- **M2–M7 status:** code done and tested offline. 108 tests pass; `tsc` is clean; the page passes headless smoke tests at phone size; the rendered boot scripts pass `bash -n` and shellcheck. Live runs are still pending: M2/M3 need a run of the deployed page against the reference tenancy; M4–M7 need an **empty** tenancy and a real VM.
+- **Deployed:** https://easycloud.reloru.workers.dev (Worker `easycloud` on the maintainer's Cloudflare account).
+  - `KEY_ENCRYPTION_KEY` is set. It was generated and piped straight into `wrangler secret put`, so no copy exists anywhere else. Never put it again: a new value makes every stored key unreadable.
+  - Merges to `main` that touch `worker/` redeploy through `.github/workflows/deploy.yml`. Tests and typecheck gate the deploy. The workflow uses the repo secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+  - Smoke-tested on 2026-10-11: `/health` responds, the page loads, and `POST /api/accounts` generates and seals a key with the production secret.
 - **Next action:**
-  1. When the `OCI_TEST_*` env vars exist, `npm test` also runs `test/live.test.ts`. It has a GET-only guard and covers:
-     - the home region and ADs;
-     - full discovery plus a dry-run plan, with both logged.
-
-     Check the logged limit values. They show how the Limits API reports the Always Free A1, micro and storage limits (AD-scoped or regional); adjust `planLayout`'s `Allowance` source if needed. For the reference tenancy, the plan should report "nothing to create".
-  2. Deploy (maintainer action; see Open items). Run the onboarding page against the reference tenancy with an app-generated second API key. That closes M2.
-  3. First real VM (needs an empty tenancy). Verify each control-sheet command, the keep-alive P95, and Tailscale exit-node forwarding.
-- **Live tests:** these need environment variables in the cloud environment settings (values are never committed):
+  1. **M2/M3 live run (maintainer):** open the deployed page and follow it through "Check plan" against the reference tenancy, with the API key the app generates.
+     - Connect and plan are read-only; nothing is created unless Deploy is tapped.
+     - `GET /api/accounts/<id>/plan` (the id is `a` in the page URL's `#a=…`) returns the plan plus the discovery limits. Check how the Limits API reports the Always Free A1, micro and storage limits (AD-scoped or regional), and adjust `planLayout`'s `Allowance` source if needed. For the reference tenancy the plan should report "nothing to create".
+     - This run also confirms that the production edge sends `Date` unchanged (see M1). That closes M2.
+     - Afterwards the maintainer can delete the app's API key in the Oracle Console.
+     - Alternative: when the `OCI_TEST_*` env vars exist (see Live tests), `npm test` also runs `test/live.test.ts` (GET-only guard; home region, ADs, discovery and a dry-run plan, all logged).
+  2. **First real VM** (needs an empty tenancy; see Open items). Verify each control-sheet command, the keep-alive P95, and Tailscale exit-node forwarding.
+- **Live tests:** these need environment variables in the Claude Code cloud environment (session title bar → environment menu → Edit → environment variables; values are never committed):
   - `OCI_TEST_KEY_B64` (base64 of a PKCS#8 PEM)
   - `OCI_TEST_USER`
   - `OCI_TEST_TENANCY`
@@ -206,10 +210,7 @@ What cannot be automated:
   - `CreateComputeCapacityReport` checks capacity before launching; Oracle's Known Issues page points to it.
   - An opt-in A1 fallback to 1 OCPU / 6 GB when 2/12 has no capacity.
   - Push or email notification when servers are ready.
-- **Deploy (maintainer action):**
-  1. Connect this repo to a Worker with Cloudflare Workers Builds. Use root directory `worker`; deploy command `npx wrangler deploy`.
-  2. Set the secret `KEY_ENCRYPTION_KEY` to the output of `openssl rand -base64 32`. Changing it later makes stored keys undecryptable; the envelope has a version byte for future rotation.
-  3. Optionally attach a custom domain.
+- **Custom domain (optional):** attach one to the `easycloud` Worker. The `workers.dev` URL works meanwhile.
 - **Home-region fallback:** if `ListRegionSubscriptions` ever fails from a non-home region, fall back to `GetTenancy.homeRegionKey` and map the key to a name with `ListRegions`. *Not needed so far.*
 - **M8 research (deferred until M8):**
   - Does the Identity Domains SCIM API accept OCI request signatures?

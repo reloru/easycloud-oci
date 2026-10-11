@@ -25,6 +25,7 @@ production. The configuration is defined in `docs/PLAN.md`.
 | `.claude/settings.json`, `.claude/hooks/auto-approve.sh` | PreToolUse hook that auto-approves all tool calls so there are no in-chat permission prompts. It blocks force-pushes, deleting or rewriting `main`, and `rm -rf` of `/` or `~`. |
 | `worker/` | Cloudflare Worker (TypeScript). `src/oci/` holds request signing and URL building. Tests live in `test/` and run in workerd via `@cloudflare/vitest-plugin`. Setup: `cd worker && npm ci`. Checks: `npm test && npm run typecheck`. |
 | `worker/public/` | Static mobile frontend, served via Workers static assets |
+| `.github/workflows/deploy.yml` | Deploys the Worker (https://easycloud.reloru.workers.dev) on merges to `main` that touch `worker/`, after the tests and typecheck pass. Uses the repo secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The Worker secret `KEY_ENCRYPTION_KEY` is already set; never put it again. |
 
 ## Working rules
 - **Earned-space check.** Before spending significant time on one thing,
