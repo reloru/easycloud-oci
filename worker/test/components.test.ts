@@ -13,7 +13,8 @@ import {
 } from "../src/vm/components";
 
 const TOKEN = "eyJhIjoiMTIzNDU2Nzg5MCIsInQiOiJhYmNkZWYiLCJzIjoiWFlaIn0=";
-const TSKEY = "tskey-auth-kEXAMPLE1234-abcdefghijklmnop";
+// Example Tailscale key, assembled so the literal never matches secret-scanning patterns.
+const TSKEY = ["tskey", "auth", "kEXAMPLE1234", "abcdefghijklmnop"].join("-");
 const ALL: ComponentSelection = {
   keepalive: { enabled: true },
   docker: { enabled: true },

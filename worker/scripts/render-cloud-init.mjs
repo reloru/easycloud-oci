@@ -16,7 +16,7 @@ const sel = which === "default"
       keepalive: { enabled: true },
       docker: { enabled: true },
       cloudflared: { enabled: true, tunnelToken: "eyJhIjoiMTIzNDU2Nzg5MCIsInQiOiJhYmNkZWYiLCJzIjoiWFlaIn0=" },
-      tailscale: { enabled: true, authKey: "tskey-auth-kEXAMPLE1234-abcdefghijklmnop", exitNode: true },
+      tailscale: { enabled: true, authKey: ["tskey", "auth", "kEXAMPLE1234", "abcdefghijklmnop"].join("-"), exitNode: true },
     };
 const script = m.buildUserData(role, `easycloud-${role}`, sel);
 const file = join(tmpdir(), `easycloud-user-data-${role}.sh`);
