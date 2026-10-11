@@ -2,27 +2,30 @@
 
 ## Status
 - **Updated:** 2026-10-11
-- **Done:** Step 1 (repo setup) and M1 (Worker skeleton and OCI request signer). See Milestones.
-- **M2–M7 status:** code done and tested offline. 108 tests pass; `tsc` is clean; the page passes headless smoke tests at phone size; the rendered boot scripts pass `bash -n` and shellcheck. Live runs are still pending: M2/M3 need a run of the deployed page against the reference tenancy; M4–M7 need an **empty** tenancy and a real VM.
+- **Done:** Step 1 (repo setup), M1 (Worker skeleton and OCI request signer) and M3 (discovery, verified live). See Milestones.
+- **M2, M4–M7 status:** code done and tested offline. 110 tests pass here (108 offline plus 2 live); `tsc` is clean; the page passes headless smoke tests at phone size; the rendered boot scripts pass `bash -n` and shellcheck. Live runs are still pending: M2 needs a run of the deployed page against the reference tenancy; M4–M7 need an **empty** tenancy and a real VM. The empty tenancy will be the first friend's own new account (see Open items → Empty tenancy).
+- **Live read-only run (2026-10-11):** `test/live.test.ts` passed against the reference tenancy.
+  - Signing works from workerd. Home region `us-ashburn-1`, 3 ADs.
+  - Discovery found 2 micros and the 2/12 A1, 200 GB used and 2 of 2 VCNs.
+  - The plan says "Nothing to create".
+  - Limits are reported per AD (see Platform facts), and the planner's documented-allowance approach is correct as is.
 - **Deployed:** https://easycloud.reloru.workers.dev (Worker `easycloud` on the maintainer's Cloudflare account).
   - `KEY_ENCRYPTION_KEY` is set. It was generated and piped straight into `wrangler secret put`, so no copy exists anywhere else. Never put it again: a new value makes every stored key unreadable.
   - Merges to `main` that touch `worker/` redeploy through `.github/workflows/deploy.yml`. Tests and typecheck gate the deploy. The workflow uses the repo secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
   - Smoke-tested on 2026-10-11: `/health` responds, the page loads, and `POST /api/accounts` generates and seals a key with the production secret.
 - **Next action:**
-  1. **M2/M3 live run (maintainer):** open the deployed page and follow it through "Check plan" against the reference tenancy, with the API key the app generates.
-     - Connect and plan are read-only; nothing is created unless Deploy is tapped.
-     - `GET /api/accounts/<id>/plan` (the id is `a` in the page URL's `#a=…`) returns the plan plus the discovery limits. Check how the Limits API reports the Always Free A1, micro and storage limits (AD-scoped or regional), and adjust `planLayout`'s `Allowance` source if needed. For the reference tenancy the plan should report "nothing to create".
-     - This run also confirms that the production edge sends `Date` unchanged (see M1). That closes M2.
-     - Afterwards the maintainer can delete the app's API key in the Oracle Console.
-     - Alternative: when the `OCI_TEST_*` env vars exist (see Live tests), `npm test` also runs `test/live.test.ts` (GET-only guard; home region, ADs, discovery and a dry-run plan, all logged).
-  2. **First real VM** (needs an empty tenancy; see Open items). Verify each control-sheet command, the keep-alive P95, and Tailscale exit-node forwarding.
+  1. **M2 live run (maintainer):** open the deployed page and follow it through "Check plan" against the reference tenancy, with the API key the app generates.
+     - Connect and plan are read-only; nothing is created unless Deploy is tapped. The plan should report "nothing to create".
+     - This run confirms the production edge sends `Date` unchanged (see M1). That closes M2.
+     - Afterwards the maintainer can delete the app's API key in the Oracle Console. Each user can hold at most 3 API keys.
+  2. **First real VM** (needs an empty tenancy: the first friend's account; see Open items). Verify each control-sheet command, the keep-alive P95, and Tailscale exit-node forwarding.
 - **Live tests:** these need environment variables in the Claude Code cloud environment (session title bar → environment menu → Edit → environment variables; values are never committed):
-  - `OCI_TEST_KEY_B64` (base64 of a PKCS#8 PEM)
-  - `OCI_TEST_USER`
-  - `OCI_TEST_TENANCY`
-  - `OCI_TEST_REGION`
+  - `OCI_KEY_B64` (base64 of a PKCS#8 PEM)
+  - `OCI_USER`
+  - `OCI_TENANCY`
+  - `OCI_REGION`
 
-  They load at session start. The key is a dedicated test key on the maintainer's user. Live calls are **read-only** unless the maintainer says otherwise.
+  They are set in this environment (2026-10-11), so `npm test` runs the live suite here. CI does not have them, so the suite is skipped there. They load at session start. The key is a dedicated test key on the maintainer's user. Live calls are **read-only** unless the maintainer says otherwise.
 - **Blockers:** none.
 - **Git:** `main` requires PRs (squash only). See `CLAUDE.md` → Git.
 
@@ -84,6 +87,13 @@ What cannot be automated:
 | `metadata` + `extendedMetadata` ≤ 32,000 bytes. `user_data` and `ssh_authorized_keys` cannot be changed after launch. | [CLI launch reference](https://docs.cloud.oracle.com/iaas/tools/oci-cli/latest/oci_cli_docs/cmdref/compute/instance/launch.html) |
 | Ubuntu images: iptables REJECTs all inbound traffic except port 22. Don't use UFW. | [Oracle dev blog](https://blogs.oracle.com/developers/enabling-network-traffic-to-ubuntu-images-in-oracle-cloud-infrastructure), [Compute best practices](https://docs.oracle.com/en-us/iaas/Content/Compute/References/bestpracticescompute.htm) |
 | Console MFA is on by default for new tenancies. It applies to Console sign-in only; API-key calls are unaffected. | [Security Policy for OCI Console](https://docs.oracle.com/en-us/iaas/Content/Security/Reference/iam_security_topic-iam_mfa_identity_domains_signon_policy.htm) |
+| Limits are **per AD** in an Always-Free-only tenancy. In live reads of the reference tenancy (2026-10-11, Ashburn), `standard-a1-core-count` = 2 and `standard-a1-memory-count` = 12 in **each** of the 3 ADs, and `standard-e2-micro-core-count` = 2 only in AD-2. `resourceAvailability` shows 0 left in AD-2, which holds the A1, but still 2 OCPU / 12 GB in AD-1 and AD-3. So per-AD values are not the tenancy total: summing gives 6 OCPU against the documented 2. The planner takes amounts from the documented allowance and uses limits only to pick eligible ADs. Whether a second A1 launch in another AD would be accepted is untested; do not test it. | Live API; [Always Free Resources](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm) |
+| Live image list (Ashburn, 2026-10-11): `24.04 Minimal` and `24.04 Minimal aarch64` are at build 2026.09.18. `26.04 Minimal` and `26.04 Minimal aarch64` exist at build 2026.08.17. | Live API (`ListImages`) |
+| Each user can have at most three API signing keys. | [Required Keys and OCIDs](https://docs.oracle.com/en-us/iaas/Content/API/Concepts/apisigningkey.htm) |
+| One Free Trial or Always Free account per person; creating or trying to create more is prohibited. Signup's card check also flags "one promotion per person" beyond the email address (Oracle signup code; how it detects this is an inference). | [Free Tier FAQ](https://www.oracle.com/cloud/free/faq/) |
+| Signup cards: credit cards, or debit cards that work like credit cards. PIN debit, virtual, single-use and prepaid cards are refused. Signup places a US$1 authorization, which is reversed. | [Free Tier FAQ](https://www.oracle.com/cloud/free/faq/), [Payment method](https://docs.oracle.com/en-us/iaas/Content/Billing/Tasks/changingpaymentmethod.htm) |
+| A new account starts with a 30-day / US$300 trial (select countries only). Trial limits apply until it ends: A1 16 OCPU / 96 GB per AD (the contract caps the standard promotion at 6 concurrent OCPUs) and 10 VCNs per region. The 2-VCN cap applies only once no trial credits remain. At trial end, A1 usage above 2/12 disables **all** A1 instances, which are deleted after 30 days unless the account is upgraded. | [Service limits](https://docs.oracle.com/en-us/iaas/Content/General/Concepts/servicelimits.htm), [Free Tier](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier.htm), [Universal Credits service descriptions](https://www.oracle.com/a/ocom/docs/paas-iaas-universal-credits-3940775.pdf) |
+| Free Tier and Trial tenancies cannot create child tenancies or join an organization. Upgrading to Pay As You Go cannot be undone. | [Organization planning](https://docs.oracle.com/en-us/iaas/Content/General/organization/organization_planning.htm), [Free Tier FAQ](https://www.oracle.com/cloud/free/faq/) |
 | OCI TS SDK is Node-only, and no CORS is documented on IaaS endpoints, so all OCI calls go through the Worker | [oci-typescript-sdk](https://github.com/oracle/oci-typescript-sdk) |
 | Workers WebCrypto supports RSASSA-PKCS1-v1_5. SQLite Durable Objects with alarms are available. | [Web Crypto](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/), [Durable Objects](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/) |
 | iOS Web Push requires a Home Screen web app (iOS 16.4+) | [WebKit](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/) |
@@ -141,7 +151,7 @@ What cannot be automated:
     - `POST /api/accounts`
     - `GET /api/accounts/:id`
     - `POST /api/accounts/:id/connect` with body `{preview}`
-- [ ] **M3:** Discovery: limits, storage use, VCNs, images per shape. *Code done; live dry-run pending.*
+- [x] **M3:** Discovery: limits, storage use, VCNs, images per shape. *Verified live on 2026-10-11: the dry-run against the reference tenancy found its 3 servers, 200 GB and 2 VCNs, and planned nothing to create.*
   - *Done when* a dry-run against the reference tenancy prints a correct layout plan.
   - Built so far:
     - `src/oci/discovery.ts`: compartment subtree, instances, boot and block volumes (excluding TERMINATED), VCNs, public subnets routed to an enabled IGW, limit values, and the newest 24.04 Minimal image per shape.
@@ -226,7 +236,19 @@ What cannot be automated:
 - **M6:** Decide tunnel ownership: the user's own Cloudflare account, or the maintainer's account and domain.
 - **M6:** Decide the implementation for pausable components (systemd timer vs cron). Control-sheet semantics drive the choice.
 - **M6 (Tailscale exit node):** OCI Ubuntu images also end the iptables `FORWARD` chain with a `REJECT` rule. Exit-node forwarding works only if Tailscale's own netfilter rules precede it. *Unverified; test on a real VM.* Also check Always Free outbound data-transfer allowance, which exit-node traffic consumes. *Unverified.*
-- **Testing:** the reference tenancy is full (2/2 VCNs, 200/200 GB), so live tests there are read-only or dry-run. Testing the create path (M4/M5) needs an empty tenancy.
+- **Empty tenancy (for M4–M7):** the pilot is the first friend's own new account, signed up with their own details and card. Oracle's agreement lets an account holder authorize other users.
+  - During the 30-day trial, trial limits apply. The app still caps at the Always Free allowance (`ALWAYS_FREE` in `src/plan.ts`).
+  - The 2-VCN path can be exercised only after day 30.
+  - Capacity retry gets exercised only if Oracle is short at the time.
+  - Pick a home region with 3 ADs (Ashburn, Chicago, Phoenix, London, Frankfurt) so A1 retries have more ADs to try.
+  - Rejected alternatives:
+    - A second account for the maintainer: prohibited (one per person).
+    - Compartments: quotas only restrict and limits are tenancy-wide. *Single-source; independent re-check pending.*
+    - Child tenancy: not available on Free Tier or Trial.
+    - Pay As You Go: irreversible, and the micro limit stays 2. *Single-source; independent re-check pending.*
+    - Back up, delete, test and restore the reference servers: supported, but takes them offline. *Single-source; independent re-check pending.*
+- **Planner gap (low priority):** the A1 free allowance is shared with `BM.Standard.A1` and `CI.Standard.A1.Flex` container instances ([price list](https://www.oracle.com/cloud/price-list/)), but the planner counts only `VM.Standard.A1.Flex`. A friend's new tenancy has neither.
+- **M2 (community-sourced):** a just-added API key may return 401 for a short while ([terraform-provider-oci#2383](https://github.com/oracle/terraform-provider-oci/issues/2383)). Connect should say to wait a minute and retry. *Unverified.*
 - **M6 (Tailscale toggle only):** Direct WireGuard connections may need inbound 41641/udp in both the security list and iptables, inserted above the REJECT rule. Without it, traffic is expected to fall back to relays. *Unverified. Check Tailscale's docs at M6.*
 
 ## Tooling notes
