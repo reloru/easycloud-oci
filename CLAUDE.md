@@ -46,13 +46,16 @@ production. The configuration is defined in `docs/PLAN.md`.
   - Community-sourced claims say so.
 - **Git.**
   - `main` is the state of record. A ruleset protects it: it requires a PR,
-    allows only squash merges, requires linear history, and blocks force
-    pushes and deletion. Zero approvals are needed, so a direct push to `main`
-    is rejected.
+    allows only squash merges, requires linear history, requires the CodeQL
+    checks `Analyze (javascript-typescript)` and `Analyze (python)` to pass,
+    and blocks force pushes and deletion. Zero approvals are needed, but a
+    direct push to `main` is rejected.
   - Standard flow, which the user has standing-approved:
     1. Commit on a `claude/*` branch and push it.
     2. Open a PR with the GitHub MCP tools.
-    3. Squash-merge it immediately.
+    3. Squash-merge it once the required checks pass (a few minutes).
+       Subscribe to the PR's activity to be woken when they finish; don't
+       poll.
   - After each merge, restart the branch from the new `main`:
     `git fetch origin main && git checkout -B <branch> origin/main`.
   - Use the commit trailer given in the session's system instructions.
