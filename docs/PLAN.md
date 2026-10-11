@@ -210,6 +210,10 @@ What cannot be automated:
   - `CreateComputeCapacityReport` checks capacity before launching; Oracle's Known Issues page points to it.
   - An opt-in A1 fallback to 1 OCPU / 6 GB when 2/12 has no capacity.
   - Push or email notification when servers are ready.
+- **Access control (decision pending: invite-only or public).** The setup link (`#a=<id>`) is the only credential. Whoever holds it acts through the app's admin API key in that tenancy, including deploying with their own SSH key before the owner does. Recommendation: no user accounts or passwords. Instead:
+  1. Drop the sealed private key when the deployment ends, and have the user delete the app's API key in the Console. Whether the app can delete its own key with `DeleteApiKey` is an M8 question. After that the link exposes only IPs and the control sheet. The VM keeps the control sheet, so a lost link costs nothing.
+  2. If invite-only: put one-click Cloudflare Access on `workers.dev` (Worker → Settings → Domains & Routes → Enable Cloudflare Access) with an email allowlist. Add One-time PIN as a login method, because new Zero Trust organizations default to the Cloudflare identity provider. Validate `Cf-Access-Jwt-Assertion` in the Worker. Zero Trust is free for up to 50 users (Cloudflare SASE reference architecture).
+  3. If public: rate-limit `POST /api/accounts`.
 - **Custom domain (optional):** attach one to the `easycloud` Worker. The `workers.dev` URL works meanwhile.
 - **Home-region fallback:** if `ListRegionSubscriptions` ever fails from a non-home region, fall back to `GetTenancy.homeRegionKey` and map the key to a name with `ListRegions`. *Not needed so far.*
 - **M8 research (deferred until M8):**
