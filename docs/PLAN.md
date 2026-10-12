@@ -115,7 +115,7 @@ What cannot be automated:
 | Status / notify | MVP is a reopenable status page. Web Push comes later. iOS needs the site added to the Home Screen (16.4+). Android Chrome reportedly works in-browser *(unverified)*. |
 | VM components | Opt-in toggles through cloud-init. Keep-alive is recommended. Each component ships a control sheet (see `CLAUDE.md` → Product rules). |
 | Tailscale | The user supplies an auth key. Exit-node mode is the main reason to enable Tailscale (a requested feature) and works as follows:<br>- **On the VM:** IP forwarding via sysctl (`net.ipv4.ip_forward`, `net.ipv6.conf.all.forwarding`), plus `tailscale set --advertise-exit-node`.<br>- **Approval:** the user approves the exit node in the Tailscale admin console, unless `autoApprovers` covers it.<br>- **Clients:** each client device selects the exit node.<br>- **Control sheet:** adds exit-node on/off. |
-| Access control | Public eventually. No user accounts and no Cloudflare Access gate. Before opening up, the app drops its sealed key at handoff and `POST /api/accounts` is rate-limited (see Open items → Before going public). |
+| Access control | Public eventually. No Cloudflare Access email allowlist: it keeps strangers out, which a public app doesn't want, and the Zero Trust free plan covers 50 users. Before opening up, the app drops its sealed key at handoff and `POST /api/accounts` is rate-limited. A per-setup sign-in is still open (see Open items → Before going public). |
 | Frontend | A plain HTML page, `worker/public/index.html`, served by Workers static assets. No framework. The capability ID lives in the URL hash (`#a=…`), so it never appears in request logs. |
 | Session identity | Each onboarding gets a random 128-bit capability ID. It names the Durable Object and appears in the status-page URL, which the user bookmarks. There are no accounts or logins at friend scale. |
 
@@ -225,6 +225,7 @@ What cannot be automated:
 - **Before going public.** The setup link (`#a=<id>`) is the only credential. Whoever holds it acts through the app's admin API key in that tenancy, including deploying with their own SSH key before the owner does. Required before the app is public:
   1. Drop the sealed private key when the deployment ends, and have the user delete the app's API key in the Console. Whether the app can delete its own key with `DeleteApiKey` is an M8 question. After that the link exposes only IPs and the control sheet, and the VM keeps the control sheet, so a lost link costs nothing.
   2. Rate-limit `POST /api/accounts`.
+  3. Open decision: a per-setup sign-in, so the link alone can't act during setup (which can last days while A1 capacity retries run). Options: a passkey (Face ID; no email system, no passwords) or an emailed one-time code (needs outbound email). Recommendation: add a passkey before a wide public launch; the first friend pilot does not need it.
 - **Custom domain (optional):** attach one to the `easycloud` Worker. The `workers.dev` URL works meanwhile.
 - **Home-region fallback:** if `ListRegionSubscriptions` ever fails from a non-home region, fall back to `GetTenancy.homeRegionKey` and map the key to a name with `ListRegions`. *Not needed so far.*
 - **M8 research (deferred until M8):**
