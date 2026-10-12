@@ -17,8 +17,12 @@
   - `KEY_ENCRYPTION_KEY` is set. It was generated and piped straight into `wrangler secret put`, so no copy exists anywhere else. Never put it again: a new value makes every stored key unreadable.
   - Merges to `main` that touch `worker/` redeploy through `.github/workflows/deploy.yml`. Tests and typecheck gate the deploy. The workflow uses the repo secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
   - Smoke-tested on 2026-10-11: `/health` responds, the page loads, and `POST /api/accounts` generates and seals a key with the production secret.
-- **Next action:**
-  1. **Before the app goes public** (decided: public eventually; see Decisions → Access control): build "drop the key at handoff" and a rate limit on `POST /api/accounts` (see Open items → Before going public). Both can be built and tested offline now.
+- **Next action:** build accounts in this order (design: Open items → Accounts):
+  1. ~~Auth core~~ (done 2026-10-12): `Auth` Durable Object (`src/auth/store.ts`, one global instance) with users, email codes, sessions and setup ownership; `/auth/email/start`, `/auth/email/verify`, `/auth/me`, `/auth/logout` (`src/auth/routes.ts`); `__Host-eazy` session cookie (SHA-256 stored, 30 days, renewed in the second half); Origin check on POSTs; codes HMAC'd with an HKDF key from `KEY_ENCRYPTION_KEY`, 10-minute expiry, 5 tries, 60 s resend gap, 5 per hour, plus the `AUTH_SEND_LIMIT` rate-limit binding.
+  2. Ownership: session + owner checks on every setup route; sign-in screen and "Your setups" on the page; `#a=` stops being a credential.
+  3. Passkeys (check `@simplewebauthn/server` in workerd first; WebCrypto fallback).
+  4. Drop the sealed key at handoff.
+  5. Google sign-in, optional and last (the maintainer's Google Cloud sign-up was refused on 2026-10-12).
   2. **First real VM** (needs an empty tenancy: the first friend's account; see Open items). Verify each control-sheet command, the keep-alive P95, and Tailscale exit-node forwarding.
 - **Live tests:** these need environment variables in the Claude Code cloud environment (session title bar → environment menu → Edit → environment variables; values are never committed):
   - `OCI_KEY_B64` (base64 of a PKCS#8 PEM)
@@ -227,6 +231,7 @@ What cannot be automated:
   2. Rate-limit `POST /api/accounts`.
   3. User accounts replace the bare setup link as the credential (see Accounts below).
 - **Accounts (decided 2026-10-12).** Passkey + emailed code + Google sign-in.
+  - **Infrastructure done 2026-10-12:** `eazycloud.app` bought and attached to the Worker; Email Sending onboarded for it through the API (`POST /zones/{zone}/email/sending/subdomains`, then `preview_enabled=false` so codes are not kept in the dashboard). Cloudflare created the `cf-bounce` MX/SPF/DKIM records and `_dmarc` (p=reject).
   - **Domain first (maintainer):** buy a `.dev` or `.app` domain on Cloudflare Registrar. Live prices on 2026-10-12: $8.20 the first year for both; renewal $12.20 (`.dev`) or $14.20 (`.app`). Available then: `geteasycloud.dev`, `easycloudoci.dev`, `easycloudfree.dev`, `geteasycloud.app`. Registrar fees are non-refundable. The domain becomes the app's address, the passkey relying-party ID, the Google redirect URI host and the email sender.
   - **Email sending:** Cloudflare Email Sending (public beta since 2026-04-16; Workers Paid; the sending domain must use Cloudflare DNS) through a `send_email` binding ([Email Service](https://developers.cloudflare.com/email-service/)).
   - **Google sign-in:** OpenID Connect with `openid email profile`. Google lists no price for Sign in with Google ([SIWG](https://developers.google.com/identity/siwg)), and verification is not mandatory for non-sensitive scopes; showing the app name and logo needs brand verification ([OAuth app verification](https://support.google.com/cloud/answer/13463073)). The maintainer creates the OAuth client in Google Cloud Console once the domain exists.
