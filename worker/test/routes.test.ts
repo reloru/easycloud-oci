@@ -1,8 +1,14 @@
 import { env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import worker from "../src/index";
+import { signIn } from "./helpers/session";
 
-const call = (path: string, init?: RequestInit) => worker.fetch(new Request(`https://eazycloud.example${path}`, init), env);
+let headers: Record<string, string>;
+beforeEach(async () => {
+  headers = (await signIn()).headers;
+});
+const call = (path: string, init?: RequestInit) =>
+  worker.fetch(new Request(`https://eazycloud.example${path}`, { ...init, headers: { ...headers, ...(init?.headers as Record<string, string>) } }), env);
 
 describe("onboarding routes", () => {
   it("creates an account and returns the public key to paste into the Console", async () => {

@@ -12,6 +12,7 @@ export const CODE_RESEND_MS = 60_000;
 export const CODE_MAX_PER_HOUR = 5;
 export const SESSION_TTL_MS = 30 * 24 * 3600_000;
 const SESSION_RENEW_BELOW_MS = 15 * 24 * 3600_000;
+export const SETUPS_PER_DAY = 3;
 
 export type StartResult = { ok: true } | { ok: false; error: "too-soon" | "too-many" };
 export type VerifyResult =
@@ -107,5 +108,26 @@ export class Auth extends DurableObject<Env> {
 
   endSession(tokenHash: string): void {
     this.ctx.storage.sql.exec("DELETE FROM sessions WHERE token_hash = ?", tokenHash);
+  }
+
+  /** Record a new setup for this user unless they already created SETUPS_PER_DAY in the last 24 h. */
+  claimSetup(accountId: string, userId: string, now: number): boolean {
+    const recent = this.one<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM setups WHERE user_id = ? AND created_at > ?", userId, now - 24 * 3600_000,
+    )!.n;
+    if (recent >= SETUPS_PER_DAY) return false;
+    this.ctx.storage.sql.exec("INSERT INTO setups (account_id, user_id, created_at) VALUES (?, ?, ?)", accountId, userId, now);
+    return true;
+  }
+
+  ownerOf(accountId: string): string | null {
+    return this.one<{ user_id: string }>("SELECT user_id FROM setups WHERE account_id = ?", accountId)?.user_id ?? null;
+  }
+
+  listSetups(userId: string): { id: string; createdAt: number }[] {
+    return this.ctx.storage.sql
+      .exec("SELECT account_id, created_at FROM setups WHERE user_id = ? ORDER BY created_at DESC", userId)
+      .toArray()
+      .map((r) => ({ id: r.account_id as string, createdAt: r.created_at as number }));
   }
 }
