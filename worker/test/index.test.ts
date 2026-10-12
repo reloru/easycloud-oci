@@ -4,13 +4,13 @@ import worker from "../src/index";
 
 describe("worker", () => {
   it("answers /health", async () => {
-    const res = await worker.fetch(new Request("https://easycloud.example/health"), env);
+    const res = await worker.fetch(new Request("https://eazycloud.example/health"), env);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
   });
 
   it("404s unknown paths", async () => {
-    const res = await worker.fetch(new Request("https://easycloud.example/nope"), env);
+    const res = await worker.fetch(new Request("https://eazycloud.example/nope"), env);
     expect(res.status).toBe(404);
   });
 });

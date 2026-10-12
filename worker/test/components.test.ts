@@ -26,8 +26,8 @@ const INJECTION = ["abc';", "reboot", "#"].join(" ");
 
 describe("buildUserData", () => {
   it("default selection installs only the keep-alive, with role-specific settings", () => {
-    const a1 = buildUserData("a1", "easycloud-a1", DEFAULT_SELECTION);
-    const micro = buildUserData("micro", "easycloud-micro-1", DEFAULT_SELECTION);
+    const a1 = buildUserData("a1", "eazycloud-a1", DEFAULT_SELECTION);
+    const micro = buildUserData("micro", "eazycloud-micro-1", DEFAULT_SELECTION);
     expect(a1.startsWith("#!/bin/bash\n")).toBe(true);
     expect(a1).toContain("printf 'LOAD=%s\\nDURATION=%s\\n' 25 1800");
     expect(a1).toContain("OnCalendar=*-*-* 00/6:00:00");
@@ -41,7 +41,7 @@ describe("buildUserData", () => {
   });
 
   it("isolates each component and records its status", () => {
-    const s = buildUserData("a1", "easycloud-a1", ALL);
+    const s = buildUserData("a1", "eazycloud-a1", ALL);
     for (const c of ["keepalive", "docker", "cloudflared", "tailscale"]) {
       expect(s).toContain(`if setup_${c}; then mark ${c} ok; else mark ${c} failed; fi`);
     }
@@ -49,21 +49,21 @@ describe("buildUserData", () => {
   });
 
   it("single-quotes secrets and passes the exit-node and hostname flags", () => {
-    const s = buildUserData("micro", "easycloud-micro-2", ALL);
+    const s = buildUserData("micro", "eazycloud-micro-2", ALL);
     expect(s).toContain(`cloudflared service install '${TOKEN}'`);
-    expect(s).toContain(`tailscale up --auth-key='${TSKEY}' --hostname='easycloud-micro-2' --advertise-exit-node`);
+    expect(s).toContain(`tailscale up --auth-key='${TSKEY}' --hostname='eazycloud-micro-2' --advertise-exit-node`);
     expect(s).toContain("net.ipv4.ip_forward = 1\\nnet.ipv6.conf.all.forwarding = 1");
   });
 
-  it("writes the control sheet to /etc/easycloud and the ubuntu user's home", () => {
-    const s = buildUserData("a1", "easycloud-a1", ALL);
-    expect(s).toContain("cat > /etc/easycloud/control-sheet.txt <<'EASYCLOUD_SHEET_END'");
-    expect(s).toContain(controlSheetText("easycloud-a1", controlSheet("a1", ALL)).trimEnd());
-    expect(s).toContain("install -o ubuntu -g ubuntu -m 0644 /etc/easycloud/control-sheet.txt /home/ubuntu/EASYCLOUD.txt");
+  it("writes the control sheet to /etc/eazycloud and the ubuntu user's home", () => {
+    const s = buildUserData("a1", "eazycloud-a1", ALL);
+    expect(s).toContain("cat > /etc/eazycloud/control-sheet.txt <<'EAZYCLOUD_SHEET_END'");
+    expect(s).toContain(controlSheetText("eazycloud-a1", controlSheet("a1", ALL)).trimEnd());
+    expect(s).toContain("install -o ubuntu -g ubuntu -m 0644 /etc/eazycloud/control-sheet.txt /home/ubuntu/EAZYCLOUD.txt");
   });
 
   it("stays well inside OCI's 32,000-byte metadata limit with every component on", () => {
-    expect(encodeUserData(buildUserData("a1", "easycloud-a1", ALL)).length).toBeLessThan(16_000);
+    expect(encodeUserData(buildUserData("a1", "eazycloud-a1", ALL)).length).toBeLessThan(16_000);
   });
 
   it("base64-encodes UTF-8 correctly", () => {
@@ -97,23 +97,23 @@ describe("controlSheet", () => {
       for (const required of ["Status", "Pause", "Resume"]) expect(labels).toContain(required);
       expect(labels.some((l) => l.startsWith("Remove"))).toBe(true);
       const uninstall = s.actions.find((a) => a.label.startsWith("Uninstall package"))!;
-      expect(uninstall.command).toMatch(/^if grep -qx \S+ \/etc\/easycloud\/installed-packages 2>\/dev\/null; then sudo apt-get remove -y /);
-      expect(uninstall.command).toContain("was not installed by EasyCloud; left in place.");
+      expect(uninstall.command).toMatch(/^if grep -qx \S+ \/etc\/eazycloud\/installed-packages 2>\/dev\/null; then sudo apt-get remove -y /);
+      expect(uninstall.command).toContain("was not installed by EazyCloud; left in place.");
       for (const a of s.actions) expect(a.command).not.toContain("\n");
     }
   });
 
   it("never leaks secrets into the sheet", () => {
-    const text = controlSheetText("easycloud-a1", controlSheet("a1", ALL));
+    const text = controlSheetText("eazycloud-a1", controlSheet("a1", ALL));
     expect(text).not.toContain(TOKEN);
     expect(text).not.toContain(TSKEY);
   });
 
   it("generates the keep-alive edit command from settings", () => {
     expect(keepaliveEditCommand({ loadPercent: 30, durationMinutes: 45, onCalendar: "*-*-* 00/4:00:00" })).toBe(
-      "sudo sed -i -e 's/^LOAD=.*/LOAD=30/' -e 's/^DURATION=.*/DURATION=2700/' /etc/easycloud/keepalive.env" +
-        " && sudo sed -i 's|^OnCalendar=.*|OnCalendar=*-*-* 00/4:00:00|' /etc/systemd/system/easycloud-keepalive.timer" +
-        " && sudo systemctl daemon-reload && sudo systemctl restart easycloud-keepalive.timer",
+      "sudo sed -i -e 's/^LOAD=.*/LOAD=30/' -e 's/^DURATION=.*/DURATION=2700/' /etc/eazycloud/keepalive.env" +
+        " && sudo sed -i 's|^OnCalendar=.*|OnCalendar=*-*-* 00/4:00:00|' /etc/systemd/system/eazycloud-keepalive.timer" +
+        " && sudo systemctl daemon-reload && sudo systemctl restart eazycloud-keepalive.timer",
     );
     expect(controlSheet("micro", DEFAULT_SELECTION)[0]!.actions.find((a) => a.label.startsWith("Edit"))!.command).toBe(
       keepaliveEditCommand(KEEPALIVE_DEFAULTS.micro),

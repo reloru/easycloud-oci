@@ -51,16 +51,16 @@ describe("deployment", () => {
 
     expect(d.status).toBe("done");
     expect(d.servers.map((s) => [s.name, s.state, s.availabilityDomain])).toEqual([
-      ["easycloud-a1", "running", "AD-2"],
-      ["easycloud-micro-1", "running", "AD-2"],
-      ["easycloud-micro-2", "running", "AD-2"],
+      ["eazycloud-a1", "running", "AD-2"],
+      ["eazycloud-micro-1", "running", "AD-2"],
+      ["eazycloud-micro-2", "running", "AD-2"],
     ]);
     expect(d.servers.every((s) => /^203\.0\.113\.\d+$/.test(s.publicIp ?? ""))).toBe(true);
     expect(fake.launches.map((l) => [l.body.displayName, l.ad])).toEqual([
-      ["easycloud-a1", "AD-1"],
-      ["easycloud-micro-1", "AD-2"],
-      ["easycloud-micro-2", "AD-2"],
-      ["easycloud-a1", "AD-2"],
+      ["eazycloud-a1", "AD-1"],
+      ["eazycloud-micro-1", "AD-2"],
+      ["eazycloud-micro-2", "AD-2"],
+      ["eazycloud-a1", "AD-2"],
     ]);
     const a1 = fake.launches.at(-1)!.body;
     expect(a1).toMatchObject({
@@ -70,7 +70,7 @@ describe("deployment", () => {
       sourceDetails: { sourceType: "image", imageId: "img-a1", bootVolumeSizeInGBs: 106 },
       createVnicDetails: { subnetId: d.subnetId, assignPublicIp: true },
       metadata: { ssh_authorized_keys: SSH },
-      freeformTags: { easycloud: "managed" },
+      freeformTags: { eazycloud: "managed" },
     });
     expect(fake.launches[1]!.body).not.toHaveProperty("shapeConfig");
     expect(new Set(fake.launches.map((l) => l.token)).size).toBe(fake.launches.length);
@@ -80,12 +80,12 @@ describe("deployment", () => {
     const fake = new FakeOci();
     fake.capacity = new Set(ADS);
     const d = fresh(plan({ action: "reuse", vcnId: "v", subnetId: "s", displayName: "n" }));
-    const userData = { "easycloud-a1": "QTE=", "easycloud-micro-1": "TTE=", "easycloud-micro-2": "TTI=" };
+    const userData = { "eazycloud-a1": "QTE=", "eazycloud-micro-1": "TTE=", "eazycloud-micro-2": "TTI=" };
     await advance(d, { client: await fakeClient(fake), userData, now: () => new Date(), retrySeed: "acct" });
     expect(fake.launches.map((l) => [l.body.displayName, l.body.metadata.user_data])).toEqual([
-      ["easycloud-a1", "QTE="],
-      ["easycloud-micro-1", "TTE="],
-      ["easycloud-micro-2", "TTI="],
+      ["eazycloud-a1", "QTE="],
+      ["eazycloud-micro-1", "TTE="],
+      ["eazycloud-micro-2", "TTI="],
     ]);
     expect(d).not.toHaveProperty("userData");
   });
@@ -137,8 +137,8 @@ describe("deployment", () => {
     const d = fresh(plan({ action: "reuse", vcnId: "v", subnetId: "s", displayName: "n" }));
     d.servers = d.servers.slice(0, 1);
     fake.instances.set("i-existing", {
-      id: "i-existing", compartmentId: C, displayName: "easycloud-a1", availabilityDomain: "AD-3", lifecycleState: "PROVISIONING",
-      freeformTags: { easycloud: "managed", [RUN_TAG]: d.runId },
+      id: "i-existing", compartmentId: C, displayName: "eazycloud-a1", availabilityDomain: "AD-3", lifecycleState: "PROVISIONING",
+      freeformTags: { eazycloud: "managed", [RUN_TAG]: d.runId },
     });
     await run(fake, d);
     expect(fake.launches).toEqual([]);
@@ -151,12 +151,12 @@ describe("deployment", () => {
     const d = fresh(plan({ action: "reuse", vcnId: "v", subnetId: "s", displayName: "n" }));
     d.servers = d.servers.slice(0, 1);
     fake.instances.set("i-old", {
-      id: "i-old", compartmentId: C, displayName: "easycloud-a1", availabilityDomain: "AD-3", lifecycleState: "RUNNING",
-      freeformTags: { easycloud: "managed", [RUN_TAG]: "some-earlier-run" },
+      id: "i-old", compartmentId: C, displayName: "eazycloud-a1", availabilityDomain: "AD-3", lifecycleState: "RUNNING",
+      freeformTags: { eazycloud: "managed", [RUN_TAG]: "some-earlier-run" },
     });
     await run(fake, d);
     expect(fake.launches).toHaveLength(1);
-    expect(fake.launches[0]!.body.freeformTags).toEqual({ easycloud: "managed", [RUN_TAG]: d.runId });
+    expect(fake.launches[0]!.body.freeformTags).toEqual({ eazycloud: "managed", [RUN_TAG]: d.runId });
     expect(d.servers[0]!.instanceId).not.toBe("i-old");
   });
 
@@ -235,9 +235,9 @@ describe("deployment", () => {
     const deps = { client: await fakeClient(fake), now: () => new Date(t), retrySeed: "acct" };
     const a1Launches: number[] = [];
     for (let i = 0; i < 40; i++) {
-      const before = fake.launches.filter((l) => l.body.displayName === "easycloud-a1").length;
+      const before = fake.launches.filter((l) => l.body.displayName === "eazycloud-a1").length;
       const { nextDelayMs } = await advance(d, deps);
-      if (fake.launches.filter((l) => l.body.displayName === "easycloud-a1").length > before) a1Launches.push(t);
+      if (fake.launches.filter((l) => l.body.displayName === "eazycloud-a1").length > before) a1Launches.push(t);
       t += nextDelayMs!;
     }
     const gaps = a1Launches.slice(1).map((x, i) => x - a1Launches[i]!);
@@ -275,10 +275,10 @@ describe("serverNames", () => {
   it("skips names already used by live instances", () => {
     const p = plan();
     p.existing = {
-      a1: [{ id: "x", displayName: "easycloud-a1", shape: SHAPES.a1, ocpus: 1, memoryInGBs: 6, lifecycleState: "RUNNING", availabilityDomain: "AD-1" }],
-      micros: [{ id: "y", displayName: "easycloud-micro-1", shape: SHAPES.micro, ocpus: 1, memoryInGBs: 1, lifecycleState: "RUNNING", availabilityDomain: "AD-2" }],
+      a1: [{ id: "x", displayName: "eazycloud-a1", shape: SHAPES.a1, ocpus: 1, memoryInGBs: 6, lifecycleState: "RUNNING", availabilityDomain: "AD-1" }],
+      micros: [{ id: "y", displayName: "eazycloud-micro-1", shape: SHAPES.micro, ocpus: 1, memoryInGBs: 1, lifecycleState: "RUNNING", availabilityDomain: "AD-2" }],
     };
-    expect(serverNames(p).map((n) => n.name)).toEqual(["easycloud-a1-2", "easycloud-micro-2", "easycloud-micro-3"]);
+    expect(serverNames(p).map((n) => n.name)).toEqual(["eazycloud-a1-2", "eazycloud-micro-2", "eazycloud-micro-3"]);
   });
 });
 

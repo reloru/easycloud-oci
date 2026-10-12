@@ -70,7 +70,7 @@ export class Account extends DurableObject<Env> {
     const planned = await planAccount(await this.deps(accountId));
     if (!planned.ok) return { ok: false, error: planned.error };
     if (planned.plan.blockers.length) {
-      return { ok: false, error: { kind: "blocked", message: "EasyCloud can't set up servers yet.", details: planned.plan.blockers } };
+      return { ok: false, error: { kind: "blocked", message: "EazyCloud can't set up servers yet.", details: planned.plan.blockers } };
     }
     if (!planned.plan.create.length) {
       return { ok: false, error: { kind: "nothing-to-do", message: "The free servers already exist in this account." } };

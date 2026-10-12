@@ -13,7 +13,7 @@
   - The first connect returned 422 and its cause was not recorded; the retry about 107 s later returned 200.
   - The plan listed the A1 and both micros, 200 of 200 GB used, and "Nothing — the free servers already exist."
   - Connect outcomes are now logged to Workers Logs as `{event:"connect", ok, kind, status?, opcRequestId?}`, with no preview, OCIDs, fingerprint or account id.
-- **Deployed:** https://easycloud.reloru.workers.dev (Worker `easycloud` on the maintainer's Cloudflare account).
+- **Deployed:** https://eazycloud.app (custom domain, attached 2026-10-12) and https://easycloud.reloru.workers.dev (Worker `easycloud` on the maintainer's Cloudflare account). The product is named **EazyCloud**; server, network and VM names now use `eazycloud-*`; the Worker name and repo name stay `easycloud` because renaming the Worker would create a new one without its secret and data.
   - `KEY_ENCRYPTION_KEY` is set. It was generated and piped straight into `wrangler secret put`, so no copy exists anywhere else. Never put it again: a new value makes every stored key unreadable.
   - Merges to `main` that touch `worker/` redeploy through `.github/workflows/deploy.yml`. Tests and typecheck gate the deploy. The workflow uses the repo secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
   - Smoke-tested on 2026-10-11: `/health` responds, the page loads, and `POST /api/accounts` generates and seals a key with the production secret.
