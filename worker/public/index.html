@@ -237,6 +237,7 @@
       const { res, body } = await api("/api/accounts", { method: "POST" });
       if (!res.ok) throw new Error(body.message || "Could not create a key. Try again.");
       history.replaceState(null, "", `#a=${body.id}`);
+      $("start").disabled = false; $("start").textContent = "Start a new setup";
       render(body);
     } catch (err) {
       $("start").disabled = false; $("start").textContent = "Start a new setup";
