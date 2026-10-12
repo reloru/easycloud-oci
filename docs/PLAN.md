@@ -1,23 +1,24 @@
 # Plan
 
 ## Status
-- **Updated:** 2026-10-11
-- **Done:** Step 1 (repo setup), M1 (Worker skeleton and OCI request signer) and M3 (discovery, verified live). See Milestones.
-- **M2, M4–M7 status:** code done and tested offline. 110 tests pass here (108 offline plus 2 live); `tsc` is clean; the page passes headless smoke tests at phone size; the rendered boot scripts pass `bash -n` and shellcheck. Live runs are still pending: M2 needs a run of the deployed page against the reference tenancy; M4–M7 need an **empty** tenancy and a real VM. The empty tenancy will be the first friend's own new account (see Open items → Empty tenancy).
+- **Updated:** 2026-10-12
+- **Done:** Step 1 (repo setup), M1 (Worker skeleton and OCI request signer), M2 (onboarding, verified live) and M3 (discovery, verified live). See Milestones.
+- **M4–M7 status:** code done and tested offline. 111 tests pass here (109 offline plus 2 live); `tsc` is clean; the page passes headless smoke tests at phone size; the rendered boot scripts pass `bash -n` and shellcheck. Live runs are still pending: M4–M7 need an **empty** tenancy and a real VM. The empty tenancy will be the first friend's own new account (see Open items → Empty tenancy).
 - **Live read-only run (2026-10-11):** `test/live.test.ts` passed against the reference tenancy.
   - Signing works from workerd. Home region `us-ashburn-1`, 3 ADs.
   - Discovery found 2 micros and the 2/12 A1, 200 GB used and 2 of 2 VCNs.
   - The plan says "Nothing to create".
   - Limits are reported per AD (see Platform facts), and the planner's documented-allowance approach is correct as is.
+- **Deployed-page run (2026-10-12):** the maintainer connected the reference tenancy through the live page with an app-generated key (fingerprint `e4:ec:1e…`), then ran "Check plan".
+  - The first connect returned 422 and its cause was not recorded; the retry about 107 s later returned 200.
+  - The plan listed the A1 and both micros, 200 of 200 GB used, and "Nothing — the free servers already exist."
+  - Connect outcomes are now logged to Workers Logs as `{event:"connect", ok, kind, status?, opcRequestId?}`, with no preview, OCIDs, fingerprint or account id.
 - **Deployed:** https://easycloud.reloru.workers.dev (Worker `easycloud` on the maintainer's Cloudflare account).
   - `KEY_ENCRYPTION_KEY` is set. It was generated and piped straight into `wrangler secret put`, so no copy exists anywhere else. Never put it again: a new value makes every stored key unreadable.
   - Merges to `main` that touch `worker/` redeploy through `.github/workflows/deploy.yml`. Tests and typecheck gate the deploy. The workflow uses the repo secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
   - Smoke-tested on 2026-10-11: `/health` responds, the page loads, and `POST /api/accounts` generates and seals a key with the production secret.
 - **Next action:**
-  1. **M2 live run (maintainer):** open the deployed page and follow it through "Check plan" against the reference tenancy, with the API key the app generates.
-     - Connect and plan are read-only; nothing is created unless Deploy is tapped. The plan should report "nothing to create".
-     - This run confirms the production edge sends `Date` unchanged (see M1). That closes M2.
-     - Afterwards the maintainer can delete the app's API key in the Oracle Console. Each user can hold at most 3 API keys.
+  1. **Before the app goes public** (decided: public eventually; see Decisions → Access control): build "drop the key at handoff" and a rate limit on `POST /api/accounts` (see Open items → Before going public). Both can be built and tested offline now.
   2. **First real VM** (needs an empty tenancy: the first friend's account; see Open items). Verify each control-sheet command, the keep-alive P95, and Tailscale exit-node forwarding.
 - **Live tests:** these need environment variables in the Claude Code cloud environment (session title bar → environment menu → Edit → environment variables; values are never committed):
   - `OCI_KEY_B64` (base64 of a PKCS#8 PEM)
@@ -25,7 +26,7 @@
   - `OCI_TENANCY`
   - `OCI_REGION`
 
-  They are set in this environment (2026-10-11), so `npm test` runs the live suite here. CI does not have them, so the suite is skipped there. They load at session start. The key is a dedicated test key on the maintainer's user. Live calls are **read-only** unless the maintainer says otherwise.
+  They are set in this environment (2026-10-11), so `npm test` runs the live suite here. CI does not have them, so the suite is skipped there. They load at session start. The key is the maintainer's existing CLI key (fingerprint `1f:32:ab…`), not a dedicated one, so deleting it in the Console also breaks his CLI. Live calls are **read-only** unless the maintainer says otherwise.
 - **Blockers:** none.
 - **Git:** `main` requires PRs (squash only). See `CLAUDE.md` → Git.
 
@@ -114,6 +115,7 @@ What cannot be automated:
 | Status / notify | MVP is a reopenable status page. Web Push comes later. iOS needs the site added to the Home Screen (16.4+). Android Chrome reportedly works in-browser *(unverified)*. |
 | VM components | Opt-in toggles through cloud-init. Keep-alive is recommended. Each component ships a control sheet (see `CLAUDE.md` → Product rules). |
 | Tailscale | The user supplies an auth key. Exit-node mode is the main reason to enable Tailscale (a requested feature) and works as follows:<br>- **On the VM:** IP forwarding via sysctl (`net.ipv4.ip_forward`, `net.ipv6.conf.all.forwarding`), plus `tailscale set --advertise-exit-node`.<br>- **Approval:** the user approves the exit node in the Tailscale admin console, unless `autoApprovers` covers it.<br>- **Clients:** each client device selects the exit node.<br>- **Control sheet:** adds exit-node on/off. |
+| Access control | Public eventually. No user accounts and no Cloudflare Access gate. Before opening up, the app drops its sealed key at handoff and `POST /api/accounts` is rate-limited (see Open items → Before going public). |
 | Frontend | A plain HTML page, `worker/public/index.html`, served by Workers static assets. No framework. The capability ID lives in the URL hash (`#a=…`), so it never appears in request logs. |
 | Session identity | Each onboarding gets a random 128-bit capability ID. It names the Durable Object and appears in the status-page URL, which the user bookmarks. There are no accounts or logins at friend scale. |
 
@@ -125,14 +127,14 @@ What cannot be automated:
     - 8 SDK reference cases match byte-for-byte: GET, HEAD, DELETE, POST, PUT, PATCH, an empty body, and a UTF-8 body.
     - Every printable ASCII character survives URL encoding round-trips.
   - `tsc` is clean.
-  - The local workerd runtime sends the `Date` header unchanged, so there is no need for `x-date`. *Production edge not yet confirmed; that happens at M2.*
+  - The local workerd runtime sends the `Date` header unchanged, so there is no need for `x-date`. *Production edge confirmed on 2026-10-12: the deployed connect's signed calls to Oracle succeeded.*
   - Fixtures regenerate with `worker/scripts/gen-signer-fixtures.py` (command in its header).
   - An adversarial review (2 agents: spec conformance, and differential tests against the SDK with wire capture) found three issues. All are fixed:
     - The Limits host must be `limits.{region}.oci.oraclecloud.com`; the old host returns NXDOMAIN. Endpoints now follow the SDK's per-service templates.
     - A bare `?` or a fragment was signed without being sent. The signer now normalises the URL and returns `SignedRequest.url`, and the client sends exactly that.
     - `ociUrl` now rejects empty, `.` and `..` path segments, which WHATWG URL parsing would otherwise collapse.
   - The review also captured on the wire, in local workerd, that `Date`, `Host`, `Content-Length` (including 0), and the UTF-8 body length all go out exactly as signed.
-- [ ] **M2:** Onboarding. *Code done (see below); live run pending.*
+- [x] **M2:** Onboarding. *Verified live on 2026-10-12 through the deployed page with an app-generated key against the reference tenancy. The first connect returned 422 with an unrecorded cause; the retry succeeded.*
   - The app generates the API key pair and shows the public PEM.
   - The user pastes it in the Console and pastes the config preview back.
   - The app stores the key encrypted, resolves the home region via `ListRegionSubscriptions`, then validates with a read-only call.
@@ -220,10 +222,9 @@ What cannot be automated:
   - `CreateComputeCapacityReport` checks capacity before launching; Oracle's Known Issues page points to it.
   - An opt-in A1 fallback to 1 OCPU / 6 GB when 2/12 has no capacity.
   - Push or email notification when servers are ready.
-- **Access control (decision pending: invite-only or public).** The setup link (`#a=<id>`) is the only credential. Whoever holds it acts through the app's admin API key in that tenancy, including deploying with their own SSH key before the owner does. Recommendation: no user accounts or passwords. Instead:
-  1. Drop the sealed private key when the deployment ends, and have the user delete the app's API key in the Console. Whether the app can delete its own key with `DeleteApiKey` is an M8 question. After that the link exposes only IPs and the control sheet. The VM keeps the control sheet, so a lost link costs nothing.
-  2. If invite-only: put one-click Cloudflare Access on `workers.dev` (Worker → Settings → Domains & Routes → Enable Cloudflare Access) with an email allowlist. Add One-time PIN as a login method, because new Zero Trust organizations default to the Cloudflare identity provider. Validate `Cf-Access-Jwt-Assertion` in the Worker. Zero Trust is free for up to 50 users (Cloudflare SASE reference architecture).
-  3. If public: rate-limit `POST /api/accounts`.
+- **Before going public.** The setup link (`#a=<id>`) is the only credential. Whoever holds it acts through the app's admin API key in that tenancy, including deploying with their own SSH key before the owner does. Required before the app is public:
+  1. Drop the sealed private key when the deployment ends, and have the user delete the app's API key in the Console. Whether the app can delete its own key with `DeleteApiKey` is an M8 question. After that the link exposes only IPs and the control sheet, and the VM keeps the control sheet, so a lost link costs nothing.
+  2. Rate-limit `POST /api/accounts`.
 - **Custom domain (optional):** attach one to the `easycloud` Worker. The `workers.dev` URL works meanwhile.
 - **Home-region fallback:** if `ListRegionSubscriptions` ever fails from a non-home region, fall back to `GetTenancy.homeRegionKey` and map the key to a name with `ListRegions`. *Not needed so far.*
 - **M8 research (deferred until M8):**
@@ -249,7 +250,7 @@ What cannot be automated:
     - Pay As You Go: irreversible, and the default micro limit stays 2 ([service limits](https://docs.oracle.com/en-us/iaas/Content/General/Concepts/servicelimits.htm)). It also would not help as the code stands: the planner uses the fixed Always Free caps, so the full reference tenancy still plans nothing to create.
     - Back up, delete, test and restore the reference servers: supported (5 free volume backups; boot volumes can be backed up while running and restored), but takes them offline ([boot volume backups](https://docs.oracle.com/en-us/iaas/Content/Block/Concepts/bootvolumebackups.htm)).
 - **Planner gap (low priority):** the A1 free allowance is shared with `BM.Standard.A1` and `CI.Standard.A1.Flex` container instances ([price list](https://www.oracle.com/cloud/price-list/)), but the planner counts only `VM.Standard.A1.Flex`. A friend's new tenancy has neither.
-- **M2: a just-added API key may not work right away.** A new key starts in `CREATING` and is usable only when `ACTIVE` ([ApiKey model](https://docs.oracle.com/en-us/iaas/tools/python/latest/api/identity/models/oci.identity.models.ApiKey.html)). IAM changes can take several minutes to reach the home region ([Managing Regions](https://docs.oracle.com/en-us/iaas/Content/Identity/regions/managingregions.htm)). Connect should treat a 401 right after the key is added as "wait a minute and retry", not as a wrong key.
+- **New API keys take time to work (covered).** A new key starts in `CREATING` and is usable only when `ACTIVE` ([ApiKey model](https://docs.oracle.com/en-us/iaas/tools/python/latest/api/identity/models/oci.identity.models.ApiKey.html)), and IAM changes can take several minutes to reach the home region ([Managing Regions](https://docs.oracle.com/en-us/iaas/Content/Identity/regions/managingregions.htm)). `describeOciError` in `src/onboarding.ts` already maps a 401 to "If you just added it, wait a minute and try again". The connect log now records the kind, so the next failure shows whether this was the cause.
 - **M6 (Tailscale toggle only):** Direct WireGuard connections may need inbound 41641/udp in both the security list and iptables, inserted above the REJECT rule. Without it, traffic is expected to fall back to relays. *Unverified. Check Tailscale's docs at M6.*
 
 ## Tooling notes

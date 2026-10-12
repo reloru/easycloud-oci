@@ -112,7 +112,21 @@ export async function getAccount(deps: OnboardingDeps): Promise<PublicAccount | 
   return record && toPublic(record);
 }
 
+/** Connect, then log the outcome kind to Workers Logs. Never log the preview, OCIDs, fingerprint or account id. */
 export async function connectAccount(deps: OnboardingDeps, previewText: string): Promise<ConnectResult> {
+  const result = await connect(deps, previewText);
+  const detail = result.ok
+    ? {}
+    : {
+        kind: result.error.kind,
+        ...("status" in result.error ? { status: result.error.status } : {}),
+        ...("opcRequestId" in result.error && result.error.opcRequestId ? { opcRequestId: result.error.opcRequestId } : {}),
+      };
+  console.log(JSON.stringify({ event: "connect", ok: result.ok, ...detail }));
+  return result;
+}
+
+async function connect(deps: OnboardingDeps, previewText: string): Promise<ConnectResult> {
   const record = await deps.storage.get<AccountRecord>(RECORD);
   if (!record) return { ok: false, error: { kind: "unknown-account", message: "This setup link is not recognised. Start again from the home page." } };
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { importDataKey } from "../src/crypto/envelope";
 import { connectAccount, createAccount, getAccount, type OnboardingDeps } from "../src/onboarding";
 
@@ -120,5 +120,24 @@ describe("connectAccount", () => {
     const { deps, preview } = await setup(() => ok([]));
     const empty = { ...deps, storage: memoryStorage() };
     expect(await connectAccount(empty, preview("us-ashburn-1"))).toMatchObject({ ok: false, error: { kind: "unknown-account" } });
+  });
+
+  it("logs each outcome's kind without the preview, OCIDs, fingerprint or account id", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const { deps, preview, account } = await setup(() => ociError(401, "NotAuthenticated", "nope"));
+      await connectAccount(deps, preview("us-ashburn-1", "00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff"));
+      await connectAccount(deps, preview("us-ashburn-1"));
+      const lines = log.mock.calls.map((c) => String(c[0]));
+      expect(lines.map((l) => JSON.parse(l))).toEqual([
+        { event: "connect", ok: false, kind: "fingerprint-mismatch" },
+        { event: "connect", ok: false, kind: "not-authenticated", opcRequestId: "req-123" },
+      ]);
+      for (const secret of [USER, TENANCY, account.fingerprint, deps.accountId, "[DEFAULT]"]) {
+        for (const line of lines) expect(line).not.toContain(secret);
+      }
+    } finally {
+      log.mockRestore();
+    }
   });
 });
