@@ -45,7 +45,7 @@
   .bar { display:flex; justify-content:space-between; align-items:center; gap:.5rem; color:var(--muted); font-size:.85rem; margin-bottom:.5rem; }
   .bar a { color:var(--accent); }
   input.wide { width:100%; font:inherit; background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:10px; padding:.7rem; }
-  a.setup { display:block; color:inherit; text-decoration:none; padding:.6rem 0; border-bottom:1px solid var(--line); }
+  a.link { color:var(--accent); }
 </style>
 </head>
 <body>
@@ -67,16 +67,10 @@
     <div id="signin-error" class="bad" hidden></div>
   </section>
 
-  <section id="step-setups" hidden>
-    <h2>Your setups</h2>
-    <div id="setups"></div>
-    <a href="#" id="back" hidden>← All setups</a>
-  </section>
-
   <section id="step-start" hidden>
     <h2>1. Create your access key</h2>
     <p>EazyCloud makes a key that lets it work in your Oracle account. You'll add it to Oracle in the next step.</p>
-    <button id="start">Start a new setup</button>
+    <button id="start">Connect my Oracle account</button>
     <div id="start-error" class="bad" hidden></div>
   </section>
 
@@ -91,7 +85,8 @@
       <li>Choose <b>Paste a public key</b>, paste, then tap <b>Add</b>.</li>
       <li>Oracle shows a <b>Configuration file preview</b>. Tap <b>Copy</b> on it and come back here.</li>
     </ol>
-    <p class="note">You can close this page — sign in again any time to come back to this setup.</p>
+    <p class="note">You can close this page — sign in again any time to pick up where you left off.</p>
+    <p class="note"><a href="#" class="link startover">Start over with a new key</a></p>
   </section>
 
   <section id="step-connect" hidden>
@@ -107,6 +102,15 @@
     <p>Home region: <b id="home-region"></b><br>Availability domains: <b id="ad-count"></b></p>
     <button id="check" class="secondary">Check what EazyCloud will set up</button>
     <div id="plan-error" class="bad" hidden></div>
+    <p class="note"><a href="#" class="link startover">Start over with a new key</a></p>
+  </section>
+
+  <section id="step-startover" hidden>
+    <h2>Start over?</h2>
+    <p>EazyCloud will make a new key. You'll add it in Oracle again, the same way as before. Afterwards you can delete the old EazyCloud key in Oracle (profile → User settings → API keys).</p>
+    <button id="startover-yes">Yes, make a new key</button>
+    <button id="startover-no" class="secondary">Keep my current key</button>
+    <div id="startover-error" class="bad" hidden></div>
   </section>
 
   <section id="step-plan" hidden>
@@ -156,10 +160,11 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const show = (id, on = true) => { $(id).hidden = !on; };
-  const accountId = () => new URLSearchParams(location.hash.slice(1)).get("a");
+  let currentId = null;
+  const accountId = () => currentId;
 
   function render(account) {
-    show("step-start", false); show("step-setups"); $("setups").innerHTML = ""; show("back");
+    hideAll();
     if (account.state === "connected") {
       show("step-key", false); show("step-connect", false); show("step-done");
       $("home-region").textContent = account.homeRegion;
@@ -177,7 +182,7 @@
     return { res, body };
   }
 
-  const SECTIONS = ["step-signin", "step-setups", "step-start", "step-key", "step-connect", "step-done", "step-plan", "step-progress", "step-handoff"];
+  const SECTIONS = ["step-signin", "step-startover", "step-start", "step-key", "step-connect", "step-done", "step-plan", "step-progress", "step-handoff"];
   const hideAll = () => SECTIONS.forEach((s) => show(s, false));
 
   function showSignin() {
@@ -215,32 +220,38 @@
   $("signout").addEventListener("click", async (e) => {
     e.preventDefault();
     await api("/auth/logout", { method: "POST" });
-    history.replaceState(null, "", location.pathname);
+    currentId = null;
     showSignin();
   });
 
-  async function showSetups() {
-    hideAll(); show("step-setups"); show("back", false);
-    const { res, body } = await api("/api/setups");
-    if (!res.ok) return;
-    $("setups").innerHTML = body.setups.length
-      ? body.setups.map((s) => `<a class="setup" href="#a=${encodeURIComponent(s.id)}">Setup started ${esc(new Date(s.createdAt).toLocaleString())} →</a>`).join("")
-      : `<p class="note">No setups yet.</p>`;
-    show("step-start");
-  }
-
-  $("back").addEventListener("click", (e) => { e.preventDefault(); history.replaceState(null, "", location.pathname); showSetups(); });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest || !e.target.closest("a.startover")) return;
+    e.preventDefault();
+    hideAll(); $("startover-error").hidden = true; show("step-startover");
+  });
+  $("startover-no").addEventListener("click", () => boot());
+  $("startover-yes").addEventListener("click", async () => {
+    const err = $("startover-error"); err.hidden = true;
+    $("startover-yes").disabled = true;
+    try {
+      const { res, body } = await api(`/api/accounts/${currentId}/reset`, { method: "POST" });
+      if (!res.ok) { err.textContent = body.message || "Couldn't start over. Try again."; err.hidden = false; return; }
+      currentId = body.id; render(body);
+    } finally {
+      $("startover-yes").disabled = false;
+    }
+  });
 
   $("start").addEventListener("click", async () => {
     $("start").disabled = true; $("start").textContent = "Creating key…";
     try {
       const { res, body } = await api("/api/accounts", { method: "POST" });
       if (!res.ok) throw new Error(body.message || "Could not create a key. Try again.");
-      history.replaceState(null, "", `#a=${body.id}`);
-      $("start").disabled = false; $("start").textContent = "Start a new setup";
+      currentId = body.id;
+      $("start").disabled = false; $("start").textContent = "Connect my Oracle account";
       render(body);
     } catch (err) {
-      $("start").disabled = false; $("start").textContent = "Start a new setup";
+      $("start").disabled = false; $("start").textContent = "Connect my Oracle account";
       $("start-error").textContent = err.message; show("start-error");
     }
   });
@@ -391,19 +402,20 @@
   });
 
   async function boot() {
+    if (location.hash) history.replaceState(null, "", location.pathname);
     const me = await api("/auth/me");
     if (!me.res.ok) { showSignin(); return; }
-    $("who").textContent = `Signed in as ${me.body.user.email}`; show("bar"); show("step-signin", false);
-    const id = accountId();
-    if (!id) { await showSetups(); return; }
+    $("who").textContent = `Signed in as ${me.body.user.email}`; show("bar");
     hideAll();
-    const { res, body } = await api(`/api/accounts/${id}`);
-    if (!res.ok) { history.replaceState(null, "", location.pathname); await showSetups(); return; }
+    const mine = await api("/api/me/account");
+    if (!mine.res.ok) { currentId = null; show("step-start"); return; }
+    currentId = mine.body.id;
+    const { res, body } = await api(`/api/accounts/${currentId}`);
+    if (!res.ok) { show("step-start"); return; }
     render(body);
     if (body.state === "connected") await refreshProgress();
   }
 
-  window.addEventListener("hashchange", boot);
   boot();
 })();
 </script>
