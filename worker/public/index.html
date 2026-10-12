@@ -86,7 +86,6 @@
       <li>Oracle shows a <b>Configuration file preview</b>. Tap <b>Copy</b> on it and come back here.</li>
     </ol>
     <p class="note">You can close this page — sign in again any time to pick up where you left off.</p>
-    <p class="note"><a href="#" class="link startover">Start over with a new key</a></p>
   </section>
 
   <section id="step-connect" hidden>
@@ -102,7 +101,6 @@
     <p>Home region: <b id="home-region"></b><br>Availability domains: <b id="ad-count"></b></p>
     <button id="check" class="secondary">Check what EazyCloud will set up</button>
     <div id="plan-error" class="bad" hidden></div>
-    <p class="note"><a href="#" class="link startover">Start over with a new key</a></p>
   </section>
 
   <section id="step-startover" hidden>
@@ -155,6 +153,11 @@
     <p class="note">Everything below is also saved on each server: run <code>cat ~/EAZYCLOUD.txt</code>. You don't need EazyCloud to manage them.</p>
     <div id="handoff"></div>
   </section>
+  <details id="trouble" class="note" hidden>
+    <summary>Key problems?</summary>
+    <p>Only needed if Oracle no longer has EazyCloud's key — for example you deleted it, or added the wrong one.</p>
+    <button id="startover-open" class="secondary">Start over with a new key</button>
+  </details>
 </main>
 <script>
 (() => {
@@ -164,7 +167,7 @@
   const accountId = () => currentId;
 
   function render(account) {
-    hideAll();
+    hideAll(); show("trouble");
     if (account.state === "connected") {
       show("step-key", false); show("step-connect", false); show("step-done");
       $("home-region").textContent = account.homeRegion;
@@ -183,7 +186,7 @@
   }
 
   const SECTIONS = ["step-signin", "step-startover", "step-start", "step-key", "step-connect", "step-done", "step-plan", "step-progress", "step-handoff"];
-  const hideAll = () => SECTIONS.forEach((s) => show(s, false));
+  const hideAll = () => { SECTIONS.forEach((s) => show(s, false)); show("trouble", false); };
 
   function showSignin() {
     hideAll(); show("bar", false); show("step-signin");
@@ -224,10 +227,8 @@
     showSignin();
   });
 
-  document.addEventListener("click", (e) => {
-    if (!e.target.closest || !e.target.closest("a.startover")) return;
-    e.preventDefault();
-    hideAll(); $("startover-error").hidden = true; show("step-startover");
+  $("startover-open").addEventListener("click", () => {
+    hideAll(); $("trouble").open = false; $("startover-error").hidden = true; show("step-startover");
   });
   $("startover-no").addEventListener("click", () => boot());
   $("startover-yes").addEventListener("click", async () => {
