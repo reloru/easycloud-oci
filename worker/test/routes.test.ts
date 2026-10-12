@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import worker from "../src/index";
 
-const call = (path: string, init?: RequestInit) => worker.fetch(new Request(`https://easycloud.example${path}`, init), env);
+const call = (path: string, init?: RequestInit) => worker.fetch(new Request(`https://eazycloud.example${path}`, init), env);
 
 describe("onboarding routes", () => {
   it("creates an account and returns the public key to paste into the Console", async () => {

@@ -12,9 +12,9 @@ import { ociEndpoint, ociUrl } from "./oci/url";
 import type { LayoutPlan, NetworkPlan, PlannedInstance } from "./plan";
 import type { ComponentSelection } from "./vm/components";
 
-export const TAGS = { easycloud: "managed" };
+export const TAGS = { eazycloud: "managed" };
 /** Freeform tag tying an instance to the deployment run that launched it (used for safe adoption). */
-export const RUN_TAG = "easycloud-run";
+export const RUN_TAG = "eazycloud-run";
 const LOG_LIMIT = 50;
 
 /**
@@ -116,7 +116,7 @@ export function serverNames(plan: LayoutPlan): { name: string; role: PlannedInst
       }
     }
   };
-  return plan.create.map((c) => ({ name: c.role === "a1" ? next("easycloud-a1", false) : next("easycloud-micro", true), role: c.role }));
+  return plan.create.map((c) => ({ name: c.role === "a1" ? next("eazycloud-a1", false) : next("eazycloud-micro", true), role: c.role }));
 }
 
 export function newDeployment(
@@ -175,7 +175,7 @@ export function classify(err: OciError): Outcome {
 
 function fatalMessage(err: OciError): string {
   if (err.code === "LimitExceeded" || err.code === "QuotaExceeded") return "Oracle says this account has no free allowance left for this server.";
-  if (err.status === 401) return "Oracle no longer accepts EasyCloud's key (was it removed from the account?).";
+  if (err.status === 401) return "Oracle no longer accepts EazyCloud's key (was it removed from the account?).";
   if (err.status === 404) return "Oracle refused access (the key's user may not be an administrator).";
   return `Oracle rejected the request: ${err.code}: ${err.message}`;
 }
@@ -244,7 +244,7 @@ export async function advance(d: Deployment, deps: AdvanceDeps): Promise<{ deplo
   }
 
   if (rateLimited) {
-    note(d, now, "Oracle asked EasyCloud to slow down; waiting before retrying.");
+    note(d, now, "Oracle asked EazyCloud to slow down; waiting before retrying.");
     d.backoffMs = Math.min(d.backoffMs * 2, PACING.backoffMaxMs);
   } else {
     d.backoffMs = PACING.backoffMinMs;
@@ -332,7 +332,7 @@ async function stepServer(d: Deployment, s: ServerItem, deps: AdvanceDeps, now: 
         s.state = "waiting-capacity";
         s.adIndex++;
         s.message = `Waiting for Oracle to free up capacity (attempt ${s.attempts}).`;
-        if (s.attempts === 1 || s.attempts % 60 === 0) note(d, now, `${s.name}: no capacity yet; EasyCloud keeps trying.`);
+        if (s.attempts === 1 || s.attempts % 60 === 0) note(d, now, `${s.name}: no capacity yet; EazyCloud keeps trying.`);
         return PACING.capacityMs;
       }
       throw err;

@@ -6,5 +6,6 @@
   "observability": { "enabled": true },
   "assets": { "directory": "./public" },
   "durable_objects": { "bindings": [{ "name": "ACCOUNTS", "class_name": "Account" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Account"] }]
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Account"] }],
+  "routes": [{ "pattern": "eazycloud.app", "custom_domain": true }]
 }

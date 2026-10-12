@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>EasyCloud</title>
+<title>EazyCloud</title>
 <style>
   :root { --bg:#f7f7f5; --card:#fff; --ink:#1c1c1a; --muted:#6b6b66; --line:#e3e3de; --accent:#1f6feb; --ok:#1a7f37; --bad:#c62828; color-scheme: light; }
   @media (prefers-color-scheme: dark) { :root { --bg:#141413; --card:#1e1e1c; --ink:#ececea; --muted:#9a9a94; --line:#33332f; --accent:#4c8dff; --ok:#3fb950; --bad:#ff6b6b; color-scheme: dark; } }
@@ -38,12 +38,12 @@
 </head>
 <body>
 <main>
-  <h1>EasyCloud</h1>
-  <p class="lede">Connect your Oracle Cloud account so EasyCloud can set up your free server.</p>
+  <h1>EazyCloud</h1>
+  <p class="lede">Connect your Oracle Cloud account so EazyCloud can set up your free server.</p>
 
   <section id="step-start">
     <h2>1. Create your access key</h2>
-    <p>EasyCloud makes a key that lets it work in your Oracle account. You'll add it to Oracle in the next step.</p>
+    <p>EazyCloud makes a key that lets it work in your Oracle account. You'll add it to Oracle in the next step.</p>
     <button id="start">Start</button>
     <div id="start-error" class="bad" hidden></div>
   </section>
@@ -74,7 +74,7 @@
     <p class="ok">Your Oracle account is connected.</p>
     <p>Home region: <b id="home-region"></b><br>Availability domains: <b id="ad-count"></b></p>
     <p class="note">Bookmark this page to come back to it.</p>
-    <button id="check" class="secondary">Check what EasyCloud will set up</button>
+    <button id="check" class="secondary">Check what EazyCloud will set up</button>
     <div id="plan-error" class="bad" hidden></div>
   </section>
 
@@ -117,7 +117,7 @@
 
   <section id="step-handoff" hidden>
     <h2>Your servers</h2>
-    <p class="note">Everything below is also saved on each server: run <code>cat ~/EASYCLOUD.txt</code>. You don't need EasyCloud to manage them.</p>
+    <p class="note">Everything below is also saved on each server: run <code>cat ~/EAZYCLOUD.txt</code>. You don't need EazyCloud to manage them.</p>
     <div id="handoff"></div>
   </section>
 </main>
@@ -190,7 +190,7 @@
     const network = { none: "", reuse: `Uses your existing network “${plan.network.displayName}”.`, create: "Creates a new network with internet access.", blocked: "" }[plan.network.action];
     let html = `<p>Storage: <b>${plan.storage.usedGB} of ${plan.storage.allowanceGB} GB</b> used.</p>`;
     if (existing.length) html += `<h3>Already in your account</h3><ul class="plain">${existing.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>`;
-    html += `<h3>EasyCloud will create</h3>`;
+    html += `<h3>EazyCloud will create</h3>`;
     html += plan.create.length ? `<ul class="plain">${plan.create.map((c) => `<li>${esc(describe(c))}</li>`).join("")}</ul>` : `<p class="note">Nothing — the free servers already exist.</p>`;
     if (network) html += `<p class="note">${esc(network)}</p>`;
     for (const b of plan.blockers) html += `<p class="bad">${esc(b)}</p>`;
@@ -202,7 +202,7 @@
 
   const STATE_TEXT = {
     queued: () => "Waiting to start",
-    "waiting-capacity": (s) => `Waiting for Oracle to free up capacity — EasyCloud keeps trying (attempt ${s.attempts})`,
+    "waiting-capacity": (s) => `Waiting for Oracle to free up capacity — EazyCloud keeps trying (attempt ${s.attempts})`,
     provisioning: () => "Starting up…",
     running: (s) => s.publicIp ? `Running at ${s.publicIp}` : "Running",
     failed: (s) => s.message || "Could not be created",
@@ -299,7 +299,7 @@
       err.textContent = (body.error && body.error.message) || "Couldn't read your account. Try again.";
       err.hidden = false;
     } finally {
-      $("check").disabled = false; $("check").textContent = "Check what EasyCloud will set up";
+      $("check").disabled = false; $("check").textContent = "Check what EazyCloud will set up";
     }
   });
 

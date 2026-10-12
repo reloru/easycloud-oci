@@ -1,6 +1,6 @@
 /**
  * M4: create or repair the app's network, idempotently. Every step first
- * looks for an existing easycloud resource and only creates what is missing,
+ * looks for an existing eazycloud resource and only creates what is missing,
  * so re-running after a partial failure finishes the job without duplicates.
  * Creates carry an opc-retry-token so a retried POST cannot double-create.
  * Shapes follow Oracle's core API (20160918) as modelled in its SDKs.
@@ -8,8 +8,8 @@
 import type { OciClient } from "./client";
 import { ociEndpoint, ociUrl } from "./url";
 
-export const NAMES = { vcn: "easycloud-vcn", igw: "easycloud-igw", subnet: "easycloud-public" } as const;
-const TAGS = { easycloud: "managed" };
+export const NAMES = { vcn: "eazycloud-vcn", igw: "eazycloud-igw", subnet: "eazycloud-public" } as const;
+const TAGS = { eazycloud: "managed" };
 const VCN_CIDR = "10.0.0.0/16";
 const SUBNET_CIDR = "10.0.0.0/24";
 const ANYWHERE = "0.0.0.0/0";
@@ -77,7 +77,7 @@ export async function ensureNetwork(client: OciClient, opts: NetworkOptions): Pr
     vcn = await client.request<Vcn>(
       "POST",
       url(["vcns"]),
-      { compartmentId: opts.compartmentId, cidrBlocks: [VCN_CIDR], displayName: NAMES.vcn, dnsLabel: "easycloud", freeformTags: TAGS },
+      { compartmentId: opts.compartmentId, cidrBlocks: [VCN_CIDR], displayName: NAMES.vcn, dnsLabel: "eazycloud", freeformTags: TAGS },
       retry("vcn"),
     );
     changes.push("created network");
@@ -111,7 +111,7 @@ export async function ensureNetwork(client: OciClient, opts: NetworkOptions): Pr
   if (!defaultRoute || defaultRoute.networkEntityId !== igw.id) {
     const routeRules = [
       ...routeTable.routeRules.filter((r) => r.destination !== ANYWHERE),
-      { destination: ANYWHERE, destinationType: "CIDR_BLOCK", networkEntityId: igw.id, description: "Internet access (easycloud)" },
+      { destination: ANYWHERE, destinationType: "CIDR_BLOCK", networkEntityId: igw.id, description: "Internet access (eazycloud)" },
     ];
     await client.request("PUT", url(["routeTables", routeTable.id]), { routeRules });
     changes.push("routed internet traffic through the gateway");
@@ -131,7 +131,7 @@ export async function ensureNetwork(client: OciClient, opts: NetworkOptions): Pr
         sourceType: "CIDR_BLOCK",
         isStateless: false,
         tcpOptions: { destinationPortRange: { min: 22, max: 22 } },
-        description: "SSH (easycloud)",
+        description: "SSH (eazycloud)",
       },
     ];
     await client.request("PUT", url(["securityLists", securityList.id]), { ingressSecurityRules });

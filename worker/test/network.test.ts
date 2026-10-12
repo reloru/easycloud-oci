@@ -7,7 +7,7 @@ import { FakeOci, fakeClient as client, type Obj } from "./helpers/fake-oci";
 
 const C = "ocid1.compartment.oc1..root";
 
-const opts = { region: "us-ashburn-1", compartmentId: C, retrySeed: "easycloud-acct", sleep: async () => {} };
+const opts = { region: "us-ashburn-1", compartmentId: C, retrySeed: "eazycloud-acct", sleep: async () => {} };
 const mutations = (calls: string[]) => calls.filter((c) => !c.startsWith("GET"));
 
 describe("ensureNetwork", () => {
@@ -22,10 +22,10 @@ describe("ensureNetwork", () => {
       "created public subnet",
     ]);
     const vcn = fake.vcns.get(result.vcnId)!;
-    expect(vcn).toMatchObject({ displayName: NAMES.vcn, cidrBlocks: ["10.0.0.0/16"], freeformTags: { easycloud: "managed" }, lifecycleState: "AVAILABLE" });
+    expect(vcn).toMatchObject({ displayName: NAMES.vcn, cidrBlocks: ["10.0.0.0/16"], freeformTags: { eazycloud: "managed" }, lifecycleState: "AVAILABLE" });
     const igw = [...fake.igws.values()][0]!;
     expect(fake.routeTables.get(vcn.defaultRouteTableId)!.routeRules).toEqual([
-      { destination: "0.0.0.0/0", destinationType: "CIDR_BLOCK", networkEntityId: igw.id, description: "Internet access (easycloud)" },
+      { destination: "0.0.0.0/0", destinationType: "CIDR_BLOCK", networkEntityId: igw.id, description: "Internet access (eazycloud)" },
     ]);
     expect(fake.securityLists.get(vcn.defaultSecurityListId)!.ingressSecurityRules).toContainEqual(
       expect.objectContaining({ protocol: "6", source: "0.0.0.0/0", tcpOptions: { destinationPortRange: { min: 22, max: 22 } } }),
@@ -51,7 +51,7 @@ describe("ensureNetwork", () => {
     fake.subnets.clear();
     fake.igws.clear();
     fake.calls = [];
-    const repaired = await ensureNetwork(c, { ...opts, retrySeed: "easycloud-acct-run2" });
+    const repaired = await ensureNetwork(c, { ...opts, retrySeed: "eazycloud-acct-run2" });
     expect(repaired.vcnId).toBe(full.vcnId);
     expect(repaired.changes).toEqual(["created internet gateway", "routed internet traffic through the gateway", "created public subnet"]);
     expect(mutations(fake.calls)).toEqual(["POST internetGateways", "PUT routeTables/:id", "POST subnets"]);
@@ -66,7 +66,7 @@ describe("ensureNetwork", () => {
       return fake.handle(req);
     });
     await ensureNetwork(c, opts);
-    expect(tokens).toEqual(["easycloud-acct-vcn", "easycloud-acct-igw", "easycloud-acct-subnet"]);
+    expect(tokens).toEqual(["eazycloud-acct-vcn", "eazycloud-acct-igw", "eazycloud-acct-subnet"]);
   });
 
   it("re-enables a disabled internet gateway instead of creating a second one", async () => {
@@ -76,7 +76,7 @@ describe("ensureNetwork", () => {
     const igw = [...fake.igws.values()][0]!;
     igw.isEnabled = false;
     fake.calls = [];
-    const result = await ensureNetwork(c, { ...opts, retrySeed: "easycloud-acct-run2" });
+    const result = await ensureNetwork(c, { ...opts, retrySeed: "eazycloud-acct-run2" });
     expect(result.changes).toEqual(["enabled internet gateway"]);
     expect(mutations(fake.calls)).toEqual(["PUT internetGateways/:id"]);
     expect(fake.igws.size).toBe(1);

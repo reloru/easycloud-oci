@@ -5,7 +5,7 @@
  * the app. One source of truth feeds both the boot script and the sheets.
  *
  * Product rules (CLAUDE.md): components are opt-in (keep-alive recommended),
- * installs are namespaced easycloud-*, the VM keeps a list of packages the app
+ * installs are namespaced eazycloud-*, the VM keeps a list of packages the app
  * installed, and uninstall commands never remove packages that were already there.
  */
 
@@ -33,7 +33,7 @@ export const KEEPALIVE_DEFAULTS: Record<Role, KeepaliveSettings> = {
 
 export const DEFAULT_SELECTION: ComponentSelection = { keepalive: { enabled: true } };
 
-const DIR = "/etc/easycloud";
+const DIR = "/etc/eazycloud";
 const PKGS = `${DIR}/installed-packages`;
 const SHEET = `${DIR}/control-sheet.txt`;
 
@@ -92,14 +92,14 @@ export function validateSelection(sel: ComponentSelection): void {
 export function keepaliveEditCommand(k: KeepaliveSettings): string {
   return (
     `sudo sed -i -e 's/^LOAD=.*/LOAD=${k.loadPercent}/' -e 's/^DURATION=.*/DURATION=${k.durationMinutes * 60}/' ${DIR}/keepalive.env` +
-    ` && sudo sed -i 's|^OnCalendar=.*|OnCalendar=${k.onCalendar}|' /etc/systemd/system/easycloud-keepalive.timer` +
-    ` && sudo systemctl daemon-reload && sudo systemctl restart easycloud-keepalive.timer`
+    ` && sudo sed -i 's|^OnCalendar=.*|OnCalendar=${k.onCalendar}|' /etc/systemd/system/eazycloud-keepalive.timer` +
+    ` && sudo systemctl daemon-reload && sudo systemctl restart eazycloud-keepalive.timer`
   );
 }
 
-/** Removes a package only if EasyCloud installed it (listed in the VM's installed-packages file). */
+/** Removes a package only if EazyCloud installed it (listed in the VM's installed-packages file). */
 const uninstall = (pkg: string, extra = "") =>
-  `if grep -qx ${pkg} ${PKGS} 2>/dev/null; then sudo apt-get remove -y ${pkg}${extra}; else echo "${pkg} was not installed by EasyCloud; left in place."; fi`;
+  `if grep -qx ${pkg} ${PKGS} 2>/dev/null; then sudo apt-get remove -y ${pkg}${extra}; else echo "${pkg} was not installed by EazyCloud; left in place."; fi`;
 
 export function controlSheet(role: Role, sel: ComponentSelection): ControlSection[] {
   const sections: ControlSection[] = [];
@@ -110,14 +110,14 @@ export function controlSheet(role: Role, sel: ComponentSelection): ControlSectio
       title: "Keep-alive",
       description: `Runs a light CPU load (${k.loadPercent}% for ${k.durationMinutes} min on schedule "${k.onCalendar}") so Oracle doesn't treat the server as idle.`,
       actions: [
-        { label: "Status", command: "systemctl list-timers easycloud-keepalive.timer --no-pager" },
-        { label: "Recent runs", command: "journalctl -u easycloud-keepalive --since -2d --no-pager | tail -n 20" },
+        { label: "Status", command: "systemctl list-timers eazycloud-keepalive.timer --no-pager" },
+        { label: "Recent runs", command: "journalctl -u eazycloud-keepalive --since -2d --no-pager | tail -n 20" },
         { label: "Edit (current values)", command: keepaliveEditCommand(k) },
-        { label: "Pause", command: "sudo systemctl disable --now easycloud-keepalive.timer" },
-        { label: "Resume", command: "sudo systemctl enable --now easycloud-keepalive.timer" },
+        { label: "Pause", command: "sudo systemctl disable --now eazycloud-keepalive.timer" },
+        { label: "Resume", command: "sudo systemctl enable --now eazycloud-keepalive.timer" },
         {
           label: "Remove",
-          command: `sudo systemctl disable --now easycloud-keepalive.timer; sudo rm -f /etc/systemd/system/easycloud-keepalive.service /etc/systemd/system/easycloud-keepalive.timer ${DIR}/keepalive.env && sudo systemctl daemon-reload`,
+          command: `sudo systemctl disable --now eazycloud-keepalive.timer; sudo rm -f /etc/systemd/system/eazycloud-keepalive.service /etc/systemd/system/eazycloud-keepalive.timer ${DIR}/keepalive.env && sudo systemctl daemon-reload`,
         },
         { label: "Uninstall package (stress-ng)", command: uninstall("stress-ng") },
       ],
@@ -175,9 +175,9 @@ export function controlSheet(role: Role, sel: ComponentSelection): ControlSectio
 
 export function controlSheetText(serverName: string, sections: ControlSection[]): string {
   const lines = [
-    `EasyCloud control sheet for ${serverName}`,
-    "Copy a command, paste it into the terminal, press Enter. None of these need the EasyCloud app.",
-    `Setup log: sudo cat /var/log/easycloud-setup.log   Component status: cat ${DIR}/status`,
+    `EazyCloud control sheet for ${serverName}`,
+    "Copy a command, paste it into the terminal, press Enter. None of these need the EazyCloud app.",
+    `Setup log: sudo cat /var/log/eazycloud-setup.log   Component status: cat ${DIR}/status`,
     "",
   ];
   for (const s of sections) {
@@ -195,17 +195,17 @@ const shq = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
 export function buildUserData(role: Role, serverName: string, sel: ComponentSelection): string {
   validateSelection(sel);
   const sheet = controlSheetText(serverName, controlSheet(role, sel));
-  if (sheet.includes("EASYCLOUD_SHEET_END")) throw new ComponentError("Control sheet contains the heredoc terminator.");
+  if (sheet.includes("EAZYCLOUD_SHEET_END")) throw new ComponentError("Control sheet contains the heredoc terminator.");
   const parts: string[] = [
     "#!/bin/bash",
-    "# EasyCloud first-boot setup. Log: /var/log/easycloud-setup.log",
-    "exec >>/var/log/easycloud-setup.log 2>&1",
+    "# EazyCloud first-boot setup. Log: /var/log/eazycloud-setup.log",
+    "exec >>/var/log/eazycloud-setup.log 2>&1",
     "set -u",
     "export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a",
     `mkdir -p ${DIR} && touch ${PKGS} && : > ${DIR}/status`,
     "APT='apt-get -o DPkg::Lock::Timeout=600'",
     `install_pkg() { dpkg -s "$1" >/dev/null 2>&1 && return 0; $APT install -y --no-install-recommends "$1" && echo "$1" >> ${PKGS}; }`,
-    `mark() { echo "$1 $2" >> ${DIR}/status; echo "[easycloud] $1: $2"; }`,
+    `mark() { echo "$1 $2" >> ${DIR}/status; echo "[eazycloud] $1: $2"; }`,
     "for _ in 1 2 3; do $APT update && break; sleep 20; done",
   ];
 
@@ -215,9 +215,9 @@ export function buildUserData(role: Role, serverName: string, sel: ComponentSele
       "setup_keepalive() {",
       "  install_pkg stress-ng || return 1",
       `  printf 'LOAD=%s\\nDURATION=%s\\n' ${k.loadPercent} ${k.durationMinutes * 60} > ${DIR}/keepalive.env`,
-      "  cat > /etc/systemd/system/easycloud-keepalive.service <<'EOF_UNIT'",
+      "  cat > /etc/systemd/system/eazycloud-keepalive.service <<'EOF_UNIT'",
       "[Unit]",
-      "Description=EasyCloud keep-alive CPU load",
+      "Description=EazyCloud keep-alive CPU load",
       "[Service]",
       "Type=oneshot",
       `EnvironmentFile=${DIR}/keepalive.env`,
@@ -225,16 +225,16 @@ export function buildUserData(role: Role, serverName: string, sel: ComponentSele
       "SuccessExitStatus=124",
       // No Nice=: Oracle's CpuUtilization (user + system + steal per the reference deployment) may not count "nice" time.
       "EOF_UNIT",
-      "  cat > /etc/systemd/system/easycloud-keepalive.timer <<'EOF_UNIT'",
+      "  cat > /etc/systemd/system/eazycloud-keepalive.timer <<'EOF_UNIT'",
       "[Unit]",
-      "Description=EasyCloud keep-alive schedule",
+      "Description=EazyCloud keep-alive schedule",
       "[Timer]",
       `OnCalendar=${k.onCalendar}`,
       "Persistent=true",
       "[Install]",
       "WantedBy=timers.target",
       "EOF_UNIT",
-      "  systemctl daemon-reload && systemctl enable --now easycloud-keepalive.timer",
+      "  systemctl daemon-reload && systemctl enable --now eazycloud-keepalive.timer",
       "}",
       'if setup_keepalive; then mark keepalive ok; else mark keepalive failed; fi',
     );
@@ -281,11 +281,11 @@ export function buildUserData(role: Role, serverName: string, sel: ComponentSele
   }
 
   parts.push(
-    `cat > ${SHEET} <<'EASYCLOUD_SHEET_END'`,
+    `cat > ${SHEET} <<'EAZYCLOUD_SHEET_END'`,
     sheet.trimEnd(),
-    "EASYCLOUD_SHEET_END",
-    `install -o ubuntu -g ubuntu -m 0644 ${SHEET} /home/ubuntu/EASYCLOUD.txt`,
-    'echo "[easycloud] setup finished"',
+    "EAZYCLOUD_SHEET_END",
+    `install -o ubuntu -g ubuntu -m 0644 ${SHEET} /home/ubuntu/EAZYCLOUD.txt`,
+    'echo "[eazycloud] setup finished"',
     "",
   );
   return parts.join("\n");

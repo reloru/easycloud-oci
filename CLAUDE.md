@@ -25,7 +25,7 @@ production. The configuration is defined in `docs/PLAN.md`.
 | `.claude/settings.json`, `.claude/hooks/auto-approve.sh` | PreToolUse hook that auto-approves all tool calls so there are no in-chat permission prompts. It blocks force-pushes, deleting or rewriting `main`, and `rm -rf` of `/` or `~`. |
 | `worker/` | Cloudflare Worker (TypeScript). `src/oci/` holds request signing and URL building. Tests live in `test/` and run in workerd via `@cloudflare/vitest-plugin`. Setup: `cd worker && npm ci`. Checks: `npm test && npm run typecheck`. |
 | `worker/public/` | Static mobile frontend, served via Workers static assets |
-| `.github/workflows/deploy.yml` | Deploys the Worker (https://easycloud.reloru.workers.dev) on merges to `main` that touch `worker/`, after the tests and typecheck pass. Uses the repo secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The Worker secret `KEY_ENCRYPTION_KEY` is already set; never put it again. |
+| `.github/workflows/deploy.yml` | Deploys the Worker (https://eazycloud.app; also https://easycloud.reloru.workers.dev) on merges to `main` that touch `worker/`, after the tests and typecheck pass. Uses the repo secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The Worker secret `KEY_ENCRYPTION_KEY` is already set; never put it again. |
 
 ## Working rules
 - **Earned-space check.** Before spending significant time on one thing,
@@ -77,7 +77,7 @@ production. The configuration is defined in `docs/PLAN.md`.
 
   The sheet is shown in the app at handoff **and** written onto the VM. The
   user keeps full control without the app and without programming knowledge.
-- **Installs are namespaced (`easycloud-*`).** The VM keeps a manifest of what
+- **Installs are namespaced (`eazycloud-*`).** The VM keeps a manifest of what
   the app installed. Uninstall commands never touch packages that were already
   present.
 - **The app only ever handles public SSH keys.** The user generates the key in
