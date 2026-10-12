@@ -5,7 +5,18 @@
   "compatibility_date": "2026-09-20",
   "observability": { "enabled": true },
   "assets": { "directory": "./public" },
-  "durable_objects": { "bindings": [{ "name": "ACCOUNTS", "class_name": "Account" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Account"] }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "ACCOUNTS", "class_name": "Account" },
+      { "name": "AUTH", "class_name": "Auth" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Account"] },
+    { "tag": "v2", "new_sqlite_classes": ["Auth"] }
+  ],
+  "vars": { "ORIGIN": "https://eazycloud.app", "RP_ID": "eazycloud.app", "EMAIL_FROM": "noreply@eazycloud.app" },
+  "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["noreply@eazycloud.app"] }],
+  "ratelimits": [{ "name": "AUTH_SEND_LIMIT", "namespace_id": "1001", "simple": { "limit": 3, "period": 60 } }],
   "routes": [{ "pattern": "eazycloud.app", "custom_domain": true }]
 }

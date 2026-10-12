@@ -1,7 +1,9 @@
+import { handleAuth } from "./auth/routes";
 import type { Env } from "./env";
 import type { ComponentSelection } from "./vm/components";
 
 export { Account } from "./account";
+export { Auth } from "./auth/store";
 
 const ACCOUNT_ID = /^[A-Za-z0-9_-]{22}$/;
 const MAX_PREVIEW_BYTES = 4096;
@@ -18,6 +20,9 @@ export default {
     const url = new URL(request.url);
     const { pathname } = url;
     if (pathname === "/health") return json({ ok: true });
+
+    const auth = await handleAuth(request, env);
+    if (auth) return auth;
 
     if (pathname === "/api/accounts" && request.method === "POST") {
       const id = newAccountId();
