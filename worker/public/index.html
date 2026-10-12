@@ -34,17 +34,41 @@
   .cmd button { width:auto; margin:0; padding:.4rem .7rem; min-height:auto; font-size:.85rem; }
   details { border-top:1px solid var(--line); padding:.4rem 0; } summary { cursor:pointer; font-weight:600; padding:.3rem 0; }
   [hidden] { display:none !important; }
+  .bar { display:flex; justify-content:space-between; align-items:center; gap:.5rem; color:var(--muted); font-size:.85rem; margin-bottom:.5rem; }
+  .bar a { color:var(--accent); }
+  input.wide { width:100%; font:inherit; background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:10px; padding:.7rem; }
+  a.setup { display:block; color:inherit; text-decoration:none; padding:.6rem 0; border-bottom:1px solid var(--line); }
 </style>
 </head>
 <body>
 <main>
+  <div class="bar" id="bar" hidden><span id="who"></span><a href="#" id="signout">Sign out</a></div>
   <h1>EazyCloud</h1>
   <p class="lede">Connect your Oracle Cloud account so EazyCloud can set up your free server.</p>
 
-  <section id="step-start">
+  <section id="step-signin" hidden>
+    <h2>Sign in</h2>
+    <p>Enter your email. We'll send you a 6-digit code — no password needed.</p>
+    <input class="wide" id="email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com">
+    <button id="send-code">Email me a code</button>
+    <div id="code-box" hidden>
+      <p id="code-sent" class="note"></p>
+      <input class="wide" id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" placeholder="123456">
+      <button id="verify">Sign in</button>
+    </div>
+    <div id="signin-error" class="bad" hidden></div>
+  </section>
+
+  <section id="step-setups" hidden>
+    <h2>Your setups</h2>
+    <div id="setups"></div>
+    <a href="#" id="back" hidden>← All setups</a>
+  </section>
+
+  <section id="step-start" hidden>
     <h2>1. Create your access key</h2>
     <p>EazyCloud makes a key that lets it work in your Oracle account. You'll add it to Oracle in the next step.</p>
-    <button id="start">Start</button>
+    <button id="start">Start a new setup</button>
     <div id="start-error" class="bad" hidden></div>
   </section>
 
@@ -59,7 +83,7 @@
       <li>Choose <b>Paste a public key</b>, paste, then tap <b>Add</b>.</li>
       <li>Oracle shows a <b>Configuration file preview</b>. Tap <b>Copy</b> on it and come back here.</li>
     </ol>
-    <p class="note">Bookmark this page — the link brings you back to this setup.</p>
+    <p class="note">You can close this page — sign in again any time to come back to this setup.</p>
   </section>
 
   <section id="step-connect" hidden>
@@ -73,7 +97,6 @@
     <h2>Connected</h2>
     <p class="ok">Your Oracle account is connected.</p>
     <p>Home region: <b id="home-region"></b><br>Availability domains: <b id="ad-count"></b></p>
-    <p class="note">Bookmark this page to come back to it.</p>
     <button id="check" class="secondary">Check what EazyCloud will set up</button>
     <div id="plan-error" class="bad" hidden></div>
   </section>
@@ -128,7 +151,7 @@
   const accountId = () => new URLSearchParams(location.hash.slice(1)).get("a");
 
   function render(account) {
-    show("step-start", false);
+    show("step-start", false); show("step-setups"); $("setups").innerHTML = ""; show("back");
     if (account.state === "connected") {
       show("step-key", false); show("step-connect", false); show("step-done");
       $("home-region").textContent = account.homeRegion;
@@ -140,20 +163,75 @@
   }
 
   async function api(path, init) {
-    const res = await fetch(path, { headers: { "content-type": "application/json" }, ...init });
+    const res = await fetch(path, { headers: { "content-type": "application/json" }, credentials: "same-origin", ...init });
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && !path.startsWith("/auth/")) showSignin();
     return { res, body };
   }
+
+  const SECTIONS = ["step-signin", "step-setups", "step-start", "step-key", "step-connect", "step-done", "step-plan", "step-progress", "step-handoff"];
+  const hideAll = () => SECTIONS.forEach((s) => show(s, false));
+
+  function showSignin() {
+    hideAll(); show("bar", false); show("step-signin");
+  }
+
+  let signinEmail = "";
+  $("send-code").addEventListener("click", async () => {
+    const err = $("signin-error"); err.hidden = true;
+    signinEmail = $("email").value.trim();
+    $("send-code").disabled = true; $("send-code").textContent = "Sending…";
+    try {
+      const { res, body } = await api("/auth/email/start", { method: "POST", body: JSON.stringify({ email: signinEmail }) });
+      if (!res.ok) { err.textContent = body.message || "Couldn't send the code. Try again."; err.hidden = false; return; }
+      $("code-sent").textContent = `We emailed a code to ${signinEmail}. It works for 10 minutes.`;
+      show("code-box"); $("code").focus();
+    } finally {
+      $("send-code").disabled = false; $("send-code").textContent = "Email me a new code";
+    }
+  });
+
+  $("verify").addEventListener("click", async () => {
+    const err = $("signin-error"); err.hidden = true;
+    $("verify").disabled = true;
+    try {
+      const { res, body } = await api("/auth/email/verify", { method: "POST", body: JSON.stringify({ email: signinEmail, code: $("code").value.trim() }) });
+      if (!res.ok) { err.textContent = body.message || "That didn't work. Try again."; err.hidden = false; return; }
+      $("code").value = ""; show("code-box", false);
+      await boot();
+    } finally {
+      $("verify").disabled = false;
+    }
+  });
+
+  $("signout").addEventListener("click", async (e) => {
+    e.preventDefault();
+    await api("/auth/logout", { method: "POST" });
+    history.replaceState(null, "", location.pathname);
+    showSignin();
+  });
+
+  async function showSetups() {
+    hideAll(); show("step-setups"); show("back", false);
+    const { res, body } = await api("/api/setups");
+    if (!res.ok) return;
+    $("setups").innerHTML = body.setups.length
+      ? body.setups.map((s) => `<a class="setup" href="#a=${encodeURIComponent(s.id)}">Setup started ${esc(new Date(s.createdAt).toLocaleString())} →</a>`).join("")
+      : `<p class="note">No setups yet.</p>`;
+    show("step-start");
+  }
+
+  $("back").addEventListener("click", (e) => { e.preventDefault(); history.replaceState(null, "", location.pathname); showSetups(); });
 
   $("start").addEventListener("click", async () => {
     $("start").disabled = true; $("start").textContent = "Creating key…";
     try {
       const { res, body } = await api("/api/accounts", { method: "POST" });
-      if (!res.ok) throw new Error("Could not create a key. Try again.");
+      if (!res.ok) throw new Error(body.message || "Could not create a key. Try again.");
       history.replaceState(null, "", `#a=${body.id}`);
       render(body);
     } catch (err) {
-      $("start").disabled = false; $("start").textContent = "Start";
+      $("start").disabled = false; $("start").textContent = "Start a new setup";
       $("start-error").textContent = err.message; show("start-error");
     }
   });
@@ -303,15 +381,21 @@
     }
   });
 
-  (async () => {
+  async function boot() {
+    const me = await api("/auth/me");
+    if (!me.res.ok) { showSignin(); return; }
+    $("who").textContent = `Signed in as ${me.body.user.email}`; show("bar"); show("step-signin", false);
     const id = accountId();
-    if (!id) return;
+    if (!id) { await showSetups(); return; }
+    hideAll();
     const { res, body } = await api(`/api/accounts/${id}`);
-    if (res.ok) {
-      render(body);
-      if (body.state === "connected") await refreshProgress();
-    }
-  })();
+    if (!res.ok) { history.replaceState(null, "", location.pathname); await showSetups(); return; }
+    render(body);
+    if (body.state === "connected") await refreshProgress();
+  }
+
+  window.addEventListener("hashchange", boot);
+  boot();
 })();
 </script>
 </body>

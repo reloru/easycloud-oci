@@ -13,6 +13,9 @@ export default defineConfig({
         bindings: {
           // TEST-ONLY data key; production uses `wrangler secret put KEY_ENCRYPTION_KEY`.
           KEY_ENCRYPTION_KEY: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+          // Tests run on this host; production uses https://eazycloud.app from wrangler.jsonc.
+          ORIGIN: "https://eazycloud.example",
+          RP_ID: "eazycloud.example",
           ...live,
         },
       },

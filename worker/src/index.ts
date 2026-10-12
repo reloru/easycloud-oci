@@ -1,4 +1,4 @@
-import { handleAuth } from "./auth/routes";
+import { authStub, currentUser, handleAuth, sameOrigin } from "./auth/routes";
 import type { Env } from "./env";
 import type { ComponentSelection } from "./vm/components";
 
@@ -21,19 +21,38 @@ export default {
     const { pathname } = url;
     if (pathname === "/health") return json({ ok: true });
 
+    // One canonical origin: cookies, passkeys and the Origin check all depend on it.
+    const canonical = new URL(env.ORIGIN);
+    if (url.host !== canonical.host) return Response.redirect(`${canonical.origin}${pathname}${url.search}`, 308);
+
     const auth = await handleAuth(request, env);
     if (auth) return auth;
 
+    if (!pathname.startsWith("/api/")) return new Response("Not found", { status: 404 });
+    if (request.method !== "GET" && !sameOrigin(request, env)) return json({ error: "bad-origin" }, 403);
+    const user = await currentUser(request, env);
+    if (!user) return json({ error: "signed-out" }, 401);
+    const owner = authStub(env);
+
+    if (pathname === "/api/setups" && request.method === "GET") {
+      return json({ setups: await owner.listSetups(user.id) });
+    }
+
     if (pathname === "/api/accounts" && request.method === "POST") {
       const id = newAccountId();
+      if (!(await owner.claimSetup(id, user.id, Date.now()))) {
+        return json({ error: "too-many-setups", message: "You've started several setups today. Try again tomorrow." }, 429);
+      }
       const account = await env.ACCOUNTS.getByName(id).create(id);
       return json({ id, ...account }, 201);
     }
 
+    const mine = async (id: string) => ACCOUNT_ID.test(id) && (await owner.ownerOf(id)) === user.id;
+
     const action = /^\/api\/accounts\/([^/]+)\/(plan|deploy|deployment|cancel|control-sheet)$/.exec(pathname);
     if (action) {
       const [, id, verb] = action as unknown as [string, string, string];
-      if (!ACCOUNT_ID.test(id)) return json({ error: "not-found" }, 404);
+      if (!(await mine(id))) return json({ error: "not-found" }, 404);
       const stub = env.ACCOUNTS.getByName(id);
       if (verb === "plan" && request.method === "GET") {
         const result = await stub.plan(id);
@@ -74,7 +93,7 @@ export default {
     const match = /^\/api\/accounts\/([^/]+)(\/connect)?$/.exec(pathname);
     if (match) {
       const id = match[1]!;
-      if (!ACCOUNT_ID.test(id)) return json({ error: "not-found" }, 404);
+      if (!(await mine(id))) return json({ error: "not-found" }, 404);
       const stub = env.ACCOUNTS.getByName(id);
       if (!match[2] && request.method === "GET") {
         const account = await stub.status(id);
