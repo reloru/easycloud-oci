@@ -3,7 +3,7 @@
 ## Status
 - **Updated:** 2026-10-12
 - **Done:** Step 1 (repo setup), M1 (Worker skeleton and OCI request signer), M2 (onboarding, verified live) and M3 (discovery, verified live). See Milestones.
-- **M4–M7 status:** code done and tested offline. 111 tests pass here (109 offline plus 2 live); `tsc` is clean; the page passes headless smoke tests at phone size; the rendered boot scripts pass `bash -n` and shellcheck. Live runs are still pending: M4–M7 need an **empty** tenancy and a real VM. The empty tenancy will be the first friend's own new account (see Open items → Empty tenancy).
+- **M4–M7 status:** code done and tested offline. 134 tests pass here (132 offline plus 2 live, as of 2026-10-12); `tsc` is clean; the page passes headless smoke tests at phone size; the rendered boot scripts pass `bash -n` and shellcheck. Live runs are still pending: M4–M7 need an **empty** tenancy and a real VM. The empty tenancy will be the first friend's own new account (see Open items → Empty tenancy).
 - **Live read-only run (2026-10-11):** `test/live.test.ts` passed against the reference tenancy.
   - Signing works from workerd. Home region `us-ashburn-1`, 3 ADs.
   - Discovery found 2 micros and the 2/12 A1, 200 GB used and 2 of 2 VCNs.
@@ -25,7 +25,9 @@
   3. Passkeys (check `@simplewebauthn/server` in workerd first; WebCrypto fallback).
   4. Drop the sealed key at handoff.
   5. Google sign-in, optional and last (the maintainer's Google Cloud sign-up was refused on 2026-10-12).
-  2. **First real VM** (needs an empty tenancy: the first friend's account; see Open items). Verify each control-sheet command, the keep-alive P95, and Tailscale exit-node forwarding.
+  6. Rate-limit account creation (see Open items → Before going public).
+
+  After accounts: **First real VM** (needs an empty tenancy: the first friend's account; see Open items). Verify each control-sheet command, the keep-alive P95, and Tailscale exit-node forwarding.
 - **Live tests:** these need environment variables in the Claude Code cloud environment (session title bar → environment menu → Edit → environment variables; values are never committed):
   - `OCI_KEY_B64` (base64 of a PKCS#8 PEM)
   - `OCI_USER`
@@ -33,6 +35,8 @@
   - `OCI_REGION`
 
   They are set in this environment (2026-10-11), so `npm test` runs the live suite here. CI does not have them, so the suite is skipped there. They load at session start. The key is the maintainer's existing CLI key (fingerprint `1f:32:ab…`), not a dedicated one, so deleting it in the Console also breaks his CLI. Live calls are **read-only** unless the maintainer says otherwise.
+- **Page layout (2026-10-12):** "Start over with a new key" sits inside a collapsed "Key problems?" section at the bottom of the page, shown only once an account exists, so it can't be tapped by accident. The confirm step is unchanged.
+- **Maintainer to-do:** in the Oracle Console, delete the app-generated API keys from testing (`e4:ec:1e…` and any others). Keep the CLI key `1f:32:ab…`, which the live tests use. Oracle allows at most 3 API keys per user.
 - **Blockers:** none.
 - **Git:** `main` requires PRs (squash only). See `CLAUDE.md` → Git.
 
@@ -229,17 +233,17 @@ What cannot be automated:
   - `CreateComputeCapacityReport` checks capacity before launching; Oracle's Known Issues page points to it.
   - An opt-in A1 fallback to 1 OCPU / 6 GB when 2/12 has no capacity.
   - Push or email notification when servers are ready.
-- **Before going public.** The setup link (`#a=<id>`) is the only credential. Whoever holds it acts through the app's admin API key in that tenancy, including deploying with their own SSH key before the owner does. Required before the app is public:
-  1. Drop the sealed private key when the deployment ends, and have the user delete the app's API key in the Console. Whether the app can delete its own key with `DeleteApiKey` is an M8 question. After that the link exposes only IPs and the control sheet, and the VM keeps the control sheet, so a lost link costs nothing.
-  2. Rate-limit `POST /api/accounts`.
-  3. User accounts replace the bare setup link as the credential (see Accounts below).
+- **Before going public.** Whoever controls a signed-in session acts through the app's API key in that user's tenancy. Remaining work:
+  1. Drop the sealed private key when the deployment ends, and have the user delete the app's API key in the Console. Whether the app can delete its own key with `DeleteApiKey` is an M8 question. After that a session exposes only IPs and the control sheet, and the VM keeps the control sheet.
+  2. Rate-limit `POST /api/accounts`. Partly covered: one account per user, and a reset is refused within a minute of the previous key. Still open: the number of new users (email sign-ins) per period.
+  3. ~~User accounts replace the bare setup link as the credential~~ (done 2026-10-12; the `#a=` link is gone).
 - **Accounts (decided 2026-10-12).** Passkey + emailed code + Google sign-in.
   - **Infrastructure done 2026-10-12:** `eazycloud.app` bought and attached to the Worker; Email Sending onboarded for it through the API (`POST /zones/{zone}/email/sending/subdomains`, then `preview_enabled=false` so codes are not kept in the dashboard). Cloudflare created the `cf-bounce` MX/SPF/DKIM records and `_dmarc` (p=reject).
-  - **Domain first (maintainer):** buy a `.dev` or `.app` domain on Cloudflare Registrar. Live prices on 2026-10-12: $8.20 the first year for both; renewal $12.20 (`.dev`) or $14.20 (`.app`). Available then: `geteasycloud.dev`, `easycloudoci.dev`, `easycloudfree.dev`, `geteasycloud.app`. Registrar fees are non-refundable. The domain becomes the app's address, the passkey relying-party ID, the Google redirect URI host and the email sender.
+  - **Domain:** `eazycloud.app` (bought on Cloudflare Registrar, 2026-10-12). It is the app's address, the passkey relying-party ID, the Google redirect URI host and the email sender.
   - **Email sending:** Cloudflare Email Sending (public beta since 2026-04-16; Workers Paid; the sending domain must use Cloudflare DNS) through a `send_email` binding ([Email Service](https://developers.cloudflare.com/email-service/)).
-  - **Google sign-in:** OpenID Connect with `openid email profile`. Google lists no price for Sign in with Google ([SIWG](https://developers.google.com/identity/siwg)), and verification is not mandatory for non-sensitive scopes; showing the app name and logo needs brand verification ([OAuth app verification](https://support.google.com/cloud/answer/13463073)). The maintainer creates the OAuth client in Google Cloud Console once the domain exists.
+  - **Email-code sign-in and ownership:** done (see Status → Next action, items 1–2).
+  - **Google sign-in (blocked):** the maintainer's Google Cloud sign-up was refused on 2026-10-12. OpenID Connect with `openid email profile`. Google lists no price for Sign in with Google ([SIWG](https://developers.google.com/identity/siwg)), and verification is not mandatory for non-sensitive scopes; showing the app name and logo needs brand verification ([OAuth app verification](https://support.google.com/cloud/answer/13463073)). The maintainer creates the OAuth client in Google Cloud Console once the domain exists.
   - **Passkeys:** `@simplewebauthn/server` v14 documents Node and Deno, not Workers. *Workers compatibility unverified*; the fallback is WebCrypto verification of ES256/RS256 assertions.
-- **Custom domain (optional):** attach one to the `easycloud` Worker. The `workers.dev` URL works meanwhile.
 - **Home-region fallback:** if `ListRegionSubscriptions` ever fails from a non-home region, fall back to `GetTenancy.homeRegionKey` and map the key to a name with `ListRegions`. *Not needed so far.*
 - **M8 research (deferred until M8):**
   - Does the Identity Domains SCIM API accept OCI request signatures?
@@ -274,8 +278,10 @@ What cannot be automated:
 - Dependency versions are pinned to releases at least two weeks old at install time. Exception: a release that fixes a security advisory may be taken as soon as it ships.
 - `sharp` and `undici` reach the repo only through the dev chain `@cloudflare/vitest-plugin`/`wrangler` → `miniflare`, which pins exact versions. Neither package ships in the deployed Worker. Clear their advisories by bumping vitest-plugin and wrangler to a release whose miniflare pins patched versions, not with npm `overrides` against miniflare's exact pins. As of vitest-plugin 1.4.0 / wrangler 4.149.0 (2026-10-08, taken under the security exception), miniflare 5.20261006.1-alpha pins sharp 0.35.5 and undici 7.29.1, and `npm audit` reports 0 vulnerabilities.
 - Example secrets in tests and scripts are assembled at runtime (for example `["tskey", "auth", …].join("-")`), so GitHub secret scanning never sees a full match.
-
 - Do not name a Durable Object RPC method `connect`. Stubs reserve it for the socket API (`Fetcher.connect`).
+- Headless browser checks in the cloud container: Playwright's old headless mode is gone; launch `/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell`.
+- Stop a local `wrangler dev` with `kill $(lsof -t -i:<port>)`. `pkill -f "wrangler dev"` also matches and kills the calling shell.
+- The `main` ruleset requires the PR branch to be up to date with `main`: when other PRs merged first, merge `main` into the branch and wait for CodeQL to re-run before merging.
 
 ## Sources
 All sources are linked inline in **Platform facts** above.
