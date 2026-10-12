@@ -34,22 +34,22 @@ export default {
     if (!user) return json({ error: "signed-out" }, 401);
     const owner = authStub(env);
 
-    if (pathname === "/api/setups" && request.method === "GET") {
-      return json({ setups: await owner.listSetups(user.id) });
+    if (pathname === "/api/me/account" && request.method === "GET") {
+      const id = await owner.setupOf(user.id);
+      return id ? json({ id }) : json({ error: "not-found" }, 404);
     }
 
     if (pathname === "/api/accounts" && request.method === "POST") {
-      const id = newAccountId();
-      if (!(await owner.claimSetup(id, user.id, Date.now()))) {
-        return json({ error: "too-many-setups", message: "You've started several setups today. Try again tomorrow." }, 429);
-      }
-      const account = await env.ACCOUNTS.getByName(id).create(id);
-      return json({ id, ...account }, 201);
+      const fresh = newAccountId();
+      const claim = await owner.claimSetup(fresh, user.id, Date.now());
+      const stub = env.ACCOUNTS.getByName(claim.id);
+      const account = claim.created ? await stub.create(claim.id) : await stub.status(claim.id);
+      return json({ id: claim.id, ...account }, claim.created ? 201 : 200);
     }
 
     const mine = async (id: string) => ACCOUNT_ID.test(id) && (await owner.ownerOf(id)) === user.id;
 
-    const action = /^\/api\/accounts\/([^/]+)\/(plan|deploy|deployment|cancel|control-sheet)$/.exec(pathname);
+    const action = /^\/api\/accounts\/([^/]+)\/(plan|deploy|deployment|cancel|control-sheet|reset)$/.exec(pathname);
     if (action) {
       const [, id, verb] = action as unknown as [string, string, string];
       if (!(await mine(id))) return json({ error: "not-found" }, 404);
@@ -65,6 +65,18 @@ export default {
       if (verb === "control-sheet" && request.method === "GET") {
         const sheets = await stub.controlSheets();
         return sheets ? json(sheets) : json({ error: "not-found" }, 404);
+      }
+      if (verb === "reset" && request.method === "POST") {
+        const deployment = await stub.deployment();
+        if (deployment && (deployment.status === "network" || deployment.status === "servers")) {
+          return json({ error: "busy", message: "Stop the server setup before starting over." }, 409);
+        }
+        const fresh = newAccountId();
+        if (!(await owner.replaceSetup(id, fresh, user.id, Date.now()))) {
+          return json({ error: "slow-down", message: "Please wait a minute before starting over." }, 429);
+        }
+        const account = await env.ACCOUNTS.getByName(fresh).create(fresh);
+        return json({ id: fresh, ...account }, 201);
       }
       if (verb === "cancel" && request.method === "POST") {
         const deployment = await stub.cancel();

@@ -12,7 +12,8 @@ export const CODE_RESEND_MS = 60_000;
 export const CODE_MAX_PER_HOUR = 5;
 export const SESSION_TTL_MS = 30 * 24 * 3600_000;
 const SESSION_RENEW_BELOW_MS = 15 * 24 * 3600_000;
-export const SETUPS_PER_DAY = 3;
+/** Minimum age of a setup before it can be replaced, so start-over can't be used to mint keys in a loop. */
+export const RESET_MIN_AGE_MS = 60_000;
 
 export type StartResult = { ok: true } | { ok: false; error: "too-soon" | "too-many" };
 export type VerifyResult =
@@ -110,24 +111,31 @@ export class Auth extends DurableObject<Env> {
     this.ctx.storage.sql.exec("DELETE FROM sessions WHERE token_hash = ?", tokenHash);
   }
 
-  /** Record a new setup for this user unless they already created SETUPS_PER_DAY in the last 24 h. */
-  claimSetup(accountId: string, userId: string, now: number): boolean {
-    const recent = this.one<{ n: number }>(
-      "SELECT COUNT(*) AS n FROM setups WHERE user_id = ? AND created_at > ?", userId, now - 24 * 3600_000,
-    )!.n;
-    if (recent >= SETUPS_PER_DAY) return false;
+  /** The user's Oracle account setup, if any (one per user; Oracle allows one free account per person). */
+  setupOf(userId: string): string | null {
+    return this.one<{ account_id: string }>(
+      "SELECT account_id FROM setups WHERE user_id = ? ORDER BY created_at DESC LIMIT 1", userId,
+    )?.account_id ?? null;
+  }
+
+  /** Record this user's setup unless one exists; returns the setup id that now belongs to the user. */
+  claimSetup(accountId: string, userId: string, now: number): { id: string; created: boolean } {
+    const existing = this.setupOf(userId);
+    if (existing) return { id: existing, created: false };
     this.ctx.storage.sql.exec("INSERT INTO setups (account_id, user_id, created_at) VALUES (?, ?, ?)", accountId, userId, now);
+    return { id: accountId, created: true };
+  }
+
+  /** Swap the user's setup for a fresh one (start over with a new key). */
+  replaceSetup(oldId: string, newId: string, userId: string, now: number): boolean {
+    const row = this.one<{ created_at: number }>("SELECT created_at FROM setups WHERE account_id = ? AND user_id = ?", oldId, userId);
+    if (!row || now - row.created_at < RESET_MIN_AGE_MS) return false;
+    this.ctx.storage.sql.exec("DELETE FROM setups WHERE user_id = ?", userId);
+    this.ctx.storage.sql.exec("INSERT INTO setups (account_id, user_id, created_at) VALUES (?, ?, ?)", newId, userId, now);
     return true;
   }
 
   ownerOf(accountId: string): string | null {
     return this.one<{ user_id: string }>("SELECT user_id FROM setups WHERE account_id = ?", accountId)?.user_id ?? null;
-  }
-
-  listSetups(userId: string): { id: string; createdAt: number }[] {
-    return this.ctx.storage.sql
-      .exec("SELECT account_id, created_at FROM setups WHERE user_id = ? ORDER BY created_at DESC", userId)
-      .toArray()
-      .map((r) => ({ id: r.account_id as string, createdAt: r.created_at as number }));
   }
 }
